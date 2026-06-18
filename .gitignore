@@ -1,0 +1,40 @@
+# Compiled binary, when built at the repo root with `go build ./cmd/arb`.
+# Anchored with a leading slash so it does NOT match the cmd/arb/ package
+# directory.
+/arb
+
+# Go's umask-probe temp file (can appear on restricted filesystems)
+*-go-tmp-umask
+
+# Build / release output
+/bin/
+/dist/
+
+# Go build & test artifacts
+*.exe
+*.test
+*.out
+*.prof
+coverage.txt
+coverage.html
+
+# Dependency vendoring (not used; modules only)
+/vendor/
+
+# Editor / OS noise
+.DS_Store
+Icon?
+.idea/
+.vscode/
+*.swp
+
+# Local brand/design working files (source iterations and exports).
+/Images/
+/design/
+
+# Brand assets are kept locally but not committed — except the README hero
+# logo, the only one the public docs reference.
+/docs/brand/*
+!/docs/brand/assets/
+/docs/brand/assets/*
+!/docs/brand/assets/logo-primary.png

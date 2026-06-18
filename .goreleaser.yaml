@@ -1,0 +1,99 @@
+# GoReleaser configuration for Arborist.
+# https://goreleaser.com
+#
+# Local checks (no publishing):
+#   goreleaser check
+#   goreleaser build --snapshot --clean
+#
+# A real release is triggered by pushing a tag (see .github/workflows/release.yml):
+#   git tag v0.1.0 && git push origin v0.1.0
+version: 2
+
+project_name: arborist
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: arb
+    main: ./cmd/arb
+    binary: arb
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - id: arb
+    ids:
+      - arb
+    # arborist_0.1.0_darwin_arm64.tar.gz — keep in sync with install.sh.
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats:
+      - tar.gz
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "Merge pull request"
+
+release:
+  github:
+    owner: jjacoblee
+    name: arborist
+  draft: false
+  prerelease: auto
+  footer: |
+    ## Install
+
+    See the README for install options (Homebrew, install script, or a direct
+    binary download). No Go toolchain required.
+
+# Homebrew tap (the nicest no-Go install path). Disabled by default so the very
+# first release works with no extra setup. To enable:
+#   1. Create a public repo named `homebrew-tap` under your GitHub account.
+#   2. Create a Personal Access Token with `contents:write` on that repo and add
+#      it as the `HOMEBREW_TAP_GITHUB_TOKEN` secret in this repo.
+#   3. Uncomment the block below and the matching env line in the release workflow.
+# Users then install with:
+#   brew install jjacoblee/tap/arborist
+#
+# brews:
+#   - name: arborist
+#     repository:
+#       owner: jjacoblee
+#       name: homebrew-tap
+#       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+#     directory: Formula
+#     homepage: "https://github.com/jjacoblee/arborist"
+#     description: "Guided Git worktree management across multiple repositories"
+#     license: "MIT"
+#     dependencies:
+#       - name: git
+#       - name: gh
+#     install: |
+#       bin.install "arb"
+#     test: |
+#       system "#{bin}/arb", "--version"
