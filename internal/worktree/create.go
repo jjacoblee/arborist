@@ -69,6 +69,10 @@ type Service struct {
 	// instead of the repository's default branch. It applies only when the
 	// target branch does not already exist locally or remotely.
 	Base string
+	// Progress, when set, receives progress updates as Create, Remove, and Prune
+	// work through their items, so a caller can render an indicator. It is
+	// optional; a nil Progress disables reporting.
+	Progress Reporter
 }
 
 // Create processes each repository for the given branch and returns a combined
@@ -77,9 +81,15 @@ type Service struct {
 // to short, tidy folders. Repositories are handled sequentially; a failure on
 // one does not stop the others (partial success is reported).
 func (s Service) Create(ctx context.Context, branch, name string, repos []github.Repository) CreateResult {
+	r := s.report()
+	r.Start(len(repos))
+	defer r.Stop()
+
 	var result CreateResult
 	for _, repo := range repos {
+		r.Step(repo.NameWithOwner)
 		s.createOne(ctx, branch, name, repo, &result)
+		r.Done()
 	}
 	return result
 }

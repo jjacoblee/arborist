@@ -141,6 +141,104 @@ func TestNew_RunsSetupAfterCreate(t *testing.T) {
 	}
 }
 
+func TestNew_SetupSuccess_DoesNotPrintInstallLog(t *testing.T) {
+	repo := github.Repository{Name: "web", Owner: "acme", NameWithOwner: "acme/web"}
+	runner := &exectest.Fake{Responses: ghOK(oneRepoJSON)}
+	sel := &pickertest.Fake{Result: []github.Repository{repo}}
+	// The setup command "succeeds" but produces noisy output that must stay hidden.
+	shell := &exectest.FakeShell{Out: []byte("PNPM_NOISE: added 1200 packages\n")}
+	dir := newWithSetupWorkspace(t)
+
+	out, err := runNewShell(t, runner, sel, shell, "new", "feature/x", "--dir", dir)
+	if err != nil {
+		t.Fatalf("new: %v\n%s", err, out)
+	}
+	if len(shell.Calls) != 1 {
+		t.Fatalf("expected setup to run once, got %+v", shell.Calls)
+	}
+	if strings.Contains(out, "PNPM_NOISE") {
+		t.Fatalf("install output should be hidden on success, got:\n%s", out)
+	}
+}
+
+func TestNew_SetupFailure_ShowsOutputAndHint(t *testing.T) {
+	repo := github.Repository{Name: "web", Owner: "acme", NameWithOwner: "acme/web"}
+	runner := &exectest.Fake{Responses: ghOK(oneRepoJSON)}
+	sel := &pickertest.Fake{Result: []github.Repository{repo}}
+	shell := &exectest.FakeShell{
+		Err: errors.New("exit 1"),
+		Out: []byte("npm warn deprecated\nERR_PNPM_LOCKFILE_BREAKING_CHANGE: bad lockfile\n"),
+	}
+	dir := newWithSetupWorkspace(t)
+
+	out, err := runNewShell(t, runner, sel, shell, "new", "feature/x", "--dir", dir)
+	// A setup failure is a warning, not a command error.
+	if err != nil {
+		t.Fatalf("setup failure should not fail the command, got: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Setup failed for acme/web") {
+		t.Fatalf("expected a setup-failure notice, got:\n%s", out)
+	}
+	if !strings.Contains(out, "ERR_PNPM_LOCKFILE_BREAKING_CHANGE") {
+		t.Fatalf("expected the captured error output to be shown, got:\n%s", out)
+	}
+	if !strings.Contains(out, "arb setup feature/x") {
+		t.Fatalf("expected a re-run hint, got:\n%s", out)
+	}
+}
+
+// TestPlanSetup_CountsCommandsNotRepos is the regression guard for the progress
+// bar that read full from the start: the bar must be sized by the number of
+// setup commands (steps), not the number of repositories. A single repo with
+// several commands must yield several steps, and repos with no commands must not
+// appear in the plan at all.
+func TestPlanSetup_CountsCommandsNotRepos(t *testing.T) {
+	cfg := config.Config{Owner: "acme", Setup: map[string][]string{
+		"web": {"pnpm install", "pnpm build"}, // 2 commands
+		"api": {"go mod download"},            // 1 command
+		// "db" has no setup configured.
+	}}
+	created := []worktree.CreatedWorktree{
+		{Repository: github.Repository{Name: "web", NameWithOwner: "acme/web"}},
+		{Repository: github.Repository{Name: "api", NameWithOwner: "acme/api"}},
+		{Repository: github.Repository{Name: "db", NameWithOwner: "acme/db"}},
+	}
+
+	jobs := planSetup(cfg, created)
+	if len(jobs) != 2 {
+		t.Fatalf("planSetup should skip repos with no commands, got %d jobs", len(jobs))
+	}
+	if got := setupSteps(jobs); got != 3 {
+		t.Fatalf("setupSteps = %d, want 3 (commands, not repos)", got)
+	}
+}
+
+// TestPlanSetup_SingleRepoSingleCommand documents the reported case: one repo
+// with one command is exactly one step, so the bar goes 0/1 -> 1/1 instead of
+// being sized to the repo count.
+func TestPlanSetup_SingleRepoSingleCommand(t *testing.T) {
+	cfg := config.Config{Owner: "acme", Setup: map[string][]string{"web": {"pnpm install"}}}
+	created := []worktree.CreatedWorktree{
+		{Repository: github.Repository{Name: "web", NameWithOwner: "acme/web"}},
+	}
+	if got := setupSteps(planSetup(cfg, created)); got != 1 {
+		t.Fatalf("setupSteps = %d, want 1", got)
+	}
+}
+
+func TestLastLines(t *testing.T) {
+	if got := lastLines("", 5); got != "" {
+		t.Fatalf("empty input = %q, want empty", got)
+	}
+	if got := lastLines("   \n\n", 5); got != "" {
+		t.Fatalf("blank input = %q, want empty", got)
+	}
+	got := lastLines("a\nb\nc\nd", 2)
+	if got != "  c\n  d" {
+		t.Fatalf("tail = %q, want %q", got, "  c\n  d")
+	}
+}
+
 func TestNew_NoSetupFlagSkips(t *testing.T) {
 	repo := github.Repository{Name: "web", Owner: "acme", NameWithOwner: "acme/web"}
 	runner := &exectest.Fake{Responses: ghOK(oneRepoJSON)}

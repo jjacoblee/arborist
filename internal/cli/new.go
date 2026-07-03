@@ -84,23 +84,23 @@ another feature branch); it applies only when the branch is newly created.`,
 				return err
 			}
 			svc.Base = base
+
+			// Show a progress bar on stderr while repositories are cloned and
+			// worktrees created, so the slow steps don't look like a hang. It
+			// draws only on a terminal and is a no-op otherwise, which keeps
+			// stdout (the summary) clean for pipes and tests.
+			svc.Progress = newBarReporter(cmd.ErrOrStderr())
 			result := svc.Create(ctx, branch, name, selected)
+
 			result.Write(out)
 
-			// Run configured setup commands in each newly created worktree.
-			// A setup failure is a warning: the worktree still exists, and the
-			// user can re-run with `arb setup`.
+			// Run configured setup commands in each newly created worktree,
+			// quietly: a progress bar shows activity and only failures are
+			// printed (with the failing command's output). Setup failures are
+			// warnings — the worktree still exists, and the user can re-run with
+			// `arb setup`.
 			if !noSetup {
-				for _, c := range result.Created {
-					cmds := ws.Config.SetupCommands(c.Repository.Name)
-					if len(cmds) == 0 {
-						continue
-					}
-					if err := runSetup(ctx, out, d.shell, c.Path, c.Repository.NameWithOwner, cmds); err != nil {
-						fmt.Fprintf(out, "Setup for %s failed: %v\n  Re-run with: arb setup %s\n",
-							c.Repository.NameWithOwner, err, c.Branch)
-					}
-				}
+				runAutoSetup(ctx, out, cmd.ErrOrStderr(), d.shell, ws.Config, result.Created)
 			}
 
 			if result.HasFailures() {
