@@ -187,12 +187,9 @@ func TestNew_SetupFailure_ShowsOutputAndHint(t *testing.T) {
 	}
 }
 
-// TestPlanSetup_CountsCommandsNotRepos is the regression guard for the progress
-// bar that read full from the start: the bar must be sized by the number of
-// setup commands (steps), not the number of repositories. A single repo with
-// several commands must yield several steps, and repos with no commands must not
-// appear in the plan at all.
-func TestPlanSetup_CountsCommandsNotRepos(t *testing.T) {
+// TestPlanSetup_SkipsReposWithoutCommands ensures repos with no setup
+// configured never appear in the plan, so they get no setup step lines.
+func TestPlanSetup_SkipsReposWithoutCommands(t *testing.T) {
 	cfg := config.Config{Owner: "acme", Setup: map[string][]string{
 		"web": {"pnpm install", "pnpm build"}, // 2 commands
 		"api": {"go mod download"},            // 1 command
@@ -208,21 +205,8 @@ func TestPlanSetup_CountsCommandsNotRepos(t *testing.T) {
 	if len(jobs) != 2 {
 		t.Fatalf("planSetup should skip repos with no commands, got %d jobs", len(jobs))
 	}
-	if got := setupSteps(jobs); got != 3 {
-		t.Fatalf("setupSteps = %d, want 3 (commands, not repos)", got)
-	}
-}
-
-// TestPlanSetup_SingleRepoSingleCommand documents the reported case: one repo
-// with one command is exactly one step, so the bar goes 0/1 -> 1/1 instead of
-// being sized to the repo count.
-func TestPlanSetup_SingleRepoSingleCommand(t *testing.T) {
-	cfg := config.Config{Owner: "acme", Setup: map[string][]string{"web": {"pnpm install"}}}
-	created := []worktree.CreatedWorktree{
-		{Repository: github.Repository{Name: "web", NameWithOwner: "acme/web"}},
-	}
-	if got := setupSteps(planSetup(cfg, created)); got != 1 {
-		t.Fatalf("setupSteps = %d, want 1", got)
+	if len(jobs[0].cmds) != 2 || len(jobs[1].cmds) != 1 {
+		t.Fatalf("planSetup lost commands: %+v", jobs)
 	}
 }
 

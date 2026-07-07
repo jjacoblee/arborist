@@ -104,10 +104,13 @@ func (s Service) createOne(ctx context.Context, branch, name string, repo github
 	repoPath := paths.RepoPath(s.WorkspaceRoot, repo.Name)
 	worktreePath := paths.WorktreePath(s.WorktreeRoot, repo.Name, dirName)
 
+	r := s.report()
 	fail := func(err error) {
+		r.Fail(repo.NameWithOwner + ": " + err.Error())
 		res.Failed = append(res.Failed, FailedWorktree{Repository: repo, Branch: branch, Err: err})
 	}
 	skip := func(path, reason string) {
+		r.Note("skipped " + repo.NameWithOwner + " — " + reason)
 		res.Skipped = append(res.Skipped, SkippedWorktree{Repository: repo, Branch: branch, Path: path, Reason: reason})
 	}
 
@@ -129,18 +132,22 @@ func (s Service) createOne(ctx context.Context, branch, name string, repo github
 			fail(fmt.Errorf("%s exists but is not a git repository", repoPath))
 			return
 		}
+		r.Log(repo.NameWithOwner + " already cloned")
 	} else {
 		if err := os.MkdirAll(filepath.Dir(repoPath), 0o755); err != nil {
 			fail(fmt.Errorf("create repository directory: %w", err))
 			return
 		}
+		r.Step("cloning " + repo.NameWithOwner)
 		if err := s.Cloner.CloneRepo(ctx, repo.NameWithOwner, repoPath); err != nil {
 			fail(err)
 			return
 		}
+		r.Log("cloned " + repo.NameWithOwner)
 	}
 
 	// Refresh remote refs so branch detection is accurate.
+	r.Step("fetching " + repo.NameWithOwner)
 	if err := s.Git.Fetch(ctx, repoPath); err != nil {
 		fail(err)
 		return
@@ -189,10 +196,12 @@ func (s Service) createOne(ctx context.Context, branch, name string, repo github
 		fail(fmt.Errorf("create worktree directory: %w", err))
 		return
 	}
+	r.Step("creating worktree " + repo.Name + "/" + dirName)
 	if err := s.Git.AddWorktree(ctx, repoPath, opts); err != nil {
 		fail(err)
 		return
 	}
+	r.Log("created worktree " + repo.Name + "/" + dirName)
 
 	created := CreatedWorktree{
 		Repository: repo,

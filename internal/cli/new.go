@@ -89,7 +89,7 @@ another feature branch); it applies only when the branch is newly created.`,
 			// worktrees created, so the slow steps don't look like a hang. It
 			// draws only on a terminal and is a no-op otherwise, which keeps
 			// stdout (the summary) clean for pipes and tests.
-			svc.Progress = newBarReporter(cmd.ErrOrStderr())
+			svc.Progress = newStepsReporter(cmd.ErrOrStderr())
 			result := svc.Create(ctx, branch, name, selected)
 
 			result.Write(out)

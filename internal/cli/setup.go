@@ -100,11 +100,8 @@ type setupJob struct {
 }
 
 // planSetup enumerates the auto-setup work up front: one job per created
-// worktree whose repository has setup commands configured. Building the full
-// plan before running anything lets the caller size the progress bar by the
-// number of commands (see setupSteps) rather than the number of repositories,
-// so the bar reflects real progress instead of jumping to full on the first
-// repository.
+// worktree whose repository has setup commands configured, skipping repos with
+// none so they never appear in the progress output.
 func planSetup(cfg config.Config, created []worktree.CreatedWorktree) []setupJob {
 	var jobs []setupJob
 	for _, c := range created {
@@ -115,27 +112,12 @@ func planSetup(cfg config.Config, created []worktree.CreatedWorktree) []setupJob
 	return jobs
 }
 
-// setupSteps is the total number of setup commands across all jobs. This is the
-// unit count that drives the progress bar: each command is one step, so a single
-// repository with several commands still fills the bar smoothly.
-func setupSteps(jobs []setupJob) int {
-	n := 0
-	for _, j := range jobs {
-		n += len(j.cmds)
-	}
-	return n
-}
-
 // runAutoSetup runs the configured setup commands for each newly created
-// worktree quietly. Output is captured rather than streamed; a progress bar on
-// errw names the repository being set up and advances once per completed
-// command, and only failures are reported on out (with the failing command's
-// captured output). This keeps a successful `arb new` from being buried under
-// install logs.
-//
-// The bar is sized by the total number of commands and advances only after each
-// command finishes, so it starts empty and never reads full before the work is
-// actually done.
+// worktree quietly. Output is captured rather than streamed; each command gets
+// a permanent step line on errw ("▸ setup api: pnpm install ✓") with a
+// transient spinner while it runs, and only failures are reported on out (with
+// the failing command's captured output). This keeps a successful `arb new`
+// from being buried under install logs.
 //
 // Setup failures are warnings, not hard errors: the worktrees still exist and
 // the user can re-run `arb setup <branch>`.
@@ -145,15 +127,16 @@ func runAutoSetup(ctx context.Context, out, errw io.Writer, shell exec.ShellRunn
 		return
 	}
 
-	bar := progress.New(errw, setupSteps(jobs))
-	bar.Start()
+	steps := progress.NewSteps(errw)
+	steps.Start()
 	var failures []setupFailure
 	for _, j := range jobs {
-		label := "Setting up " + j.wt.Repository.NameWithOwner
 		for _, c := range j.cmds {
-			bar.Show(label) // name the command about to run; the bar still reflects completed work
+			line := "setup " + j.wt.Repository.Name + ": " + c
+			steps.SetLabel(line)
 			captured, err := shell.RunShellCapture(ctx, j.wt.Path, c)
 			if err != nil {
+				steps.Println("✗ " + line)
 				failures = append(failures, setupFailure{
 					repo:    j.wt.Repository.NameWithOwner,
 					branch:  j.wt.Branch,
@@ -162,10 +145,11 @@ func runAutoSetup(ctx context.Context, out, errw io.Writer, shell exec.ShellRunn
 				})
 				break // stop this repository's setup at the first failure
 			}
-			bar.Advance(label) // mark the command done only after it succeeds
+			steps.Println("▸ " + line + " ✓")
 		}
+		steps.SetLabel("")
 	}
-	bar.Stop()
+	steps.Stop()
 
 	for _, f := range failures {
 		fmt.Fprintf(out, "\nSetup failed for %s on `%s`.\n", f.repo, f.command)

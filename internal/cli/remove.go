@@ -115,7 +115,7 @@ never removed unless you pass --force.`,
 			// Show a progress bar on stderr while worktrees are removed (each
 			// removal also prunes its base repo, so this can take a moment). The
 			// bar is inert off a terminal, keeping the stdout summary clean.
-			svc.Progress = newBarReporter(cmd.ErrOrStderr())
+			svc.Progress = newStepsReporter(cmd.ErrOrStderr())
 			result := svc.Remove(ctx, matches, force)
 			result.Write(out)
 
@@ -157,7 +157,7 @@ func newPruneCmd(d deps) *cobra.Command {
 				return err
 			}
 
-			svc.Progress = newBarReporter(cmd.ErrOrStderr())
+			svc.Progress = newStepsReporter(cmd.ErrOrStderr())
 			pruned, err := svc.Prune(ctx)
 			if err != nil {
 				return err

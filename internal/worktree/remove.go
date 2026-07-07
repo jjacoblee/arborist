@@ -109,8 +109,8 @@ func (s Service) Remove(ctx context.Context, targets []ManagedWorktree, force bo
 
 	var res RemoveResult
 	for _, wt := range targets {
-		r.Step(wt.Owner + "/" + wt.Repo)
-		s.removeOne(ctx, wt, force, &res)
+		r.Step("removing worktree " + wt.Repo + "/" + filepath.Base(wt.Path))
+		s.removeOne(ctx, r, wt, force, &res)
 		r.Done()
 	}
 	return res
@@ -122,8 +122,10 @@ func (s Service) Remove(ctx context.Context, targets []ManagedWorktree, force bo
 // is a recorded result rather than a returned error, so the caller advances its
 // progress indicator exactly once per item no matter which path is taken —
 // including a skip, which as an inline `continue` used to bypass that update.
-func (s Service) removeOne(ctx context.Context, wt ManagedWorktree, force bool, res *RemoveResult) {
+func (s Service) removeOne(ctx context.Context, r Reporter, wt ManagedWorktree, force bool, res *RemoveResult) {
+	name := wt.Repo + "/" + filepath.Base(wt.Path)
 	if wt.Dirty && !force {
+		r.Note("skipped " + name + " — has uncommitted changes")
 		res.Skipped = append(res.Skipped, SkippedRemoval{
 			Worktree: wt,
 			Reason:   "has uncommitted changes; rerun with --force to remove",
@@ -131,11 +133,13 @@ func (s Service) removeOne(ctx context.Context, wt ManagedWorktree, force bool, 
 		return
 	}
 	if err := s.Git.RemoveWorktree(ctx, wt.RepoPath, wt.Path, force); err != nil {
+		r.Fail(name + ": " + err.Error())
 		res.Failed = append(res.Failed, FailedRemoval{Worktree: wt, Err: err})
 		return
 	}
 	// Best-effort cleanup of stale admin entries.
 	_ = s.Git.PruneWorktrees(ctx, wt.RepoPath)
+	r.Log("removed worktree " + name)
 	res.Removed = append(res.Removed, wt)
 }
 
@@ -153,12 +157,13 @@ func (s Service) Prune(ctx context.Context) ([]string, error) {
 
 	pruned := make([]string, 0, len(repos))
 	for _, repoPath := range repos {
-		r.Step(filepath.Base(repoPath))
+		r.Step("pruning " + filepath.Base(repoPath))
 		if err := s.Git.PruneWorktrees(ctx, repoPath); err != nil {
 			// Abort the whole prune; the deferred Stop clears the bar. The failed
 			// repo is deliberately left un-Done — the operation didn't complete it.
 			return pruned, err
 		}
+		r.Log("pruned " + filepath.Base(repoPath))
 		r.Done()
 		pruned = append(pruned, repoPath)
 	}
