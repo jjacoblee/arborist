@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	osexec "os/exec"
 	"strings"
 )
@@ -39,6 +40,7 @@ type OS struct{}
 // (cloning goes through gh), so stderr does not carry secrets.
 func (OS) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
 	cmd := osexec.CommandContext(ctx, name, args...)
+	cmd.Env = nonInteractiveEnv()
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -50,6 +52,29 @@ func (OS) Run(ctx context.Context, name string, args ...string) ([]byte, error) 
 		return stdout.Bytes(), fmt.Errorf("run %s: %w", name, err)
 	}
 	return stdout.Bytes(), nil
+}
+
+// nonInteractiveEnv returns the current environment with credential and SSH
+// prompts disabled. The Runner captures stdout/stderr and never owns the
+// terminal, but git and ssh read auth prompts straight from /dev/tty, bypassing
+// a redirected stdin. Without this, a git or gh command that needs credentials
+// it cannot obtain silently (for example fetching or cloning a private repo
+// whose auth isn't cached) blocks forever on an invisible prompt instead of
+// failing. Forcing these off turns that hang into a fast, actionable error.
+//
+// Go's exec deduplicates the environment keeping the last value for a key, so
+// appending overrides any inherited value. GIT_SSH_COMMAND is only added when
+// the user hasn't set their own, to respect custom SSH configurations.
+func nonInteractiveEnv() []string {
+	env := append(os.Environ(),
+		"GIT_TERMINAL_PROMPT=0", // git: error instead of prompting for HTTP(S) creds
+		"GCM_INTERACTIVE=never", // Git Credential Manager: no interactive UI
+	)
+	if os.Getenv("GIT_SSH_COMMAND") == "" {
+		// ssh: fail fast instead of prompting for a passphrase or host-key check.
+		env = append(env, "GIT_SSH_COMMAND=ssh -o BatchMode=yes")
+	}
+	return env
 }
 
 // trimStderr tidies command stderr for inclusion in an error: it trims
