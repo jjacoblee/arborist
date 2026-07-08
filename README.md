@@ -43,6 +43,28 @@ for, stores, or logs GitHub tokens.
 
 Arborist ships as a single prebuilt binary — **no Go toolchain required**.
 
+### Install script (recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jjacoblee/arborist/main/install.sh | sh
+```
+
+Downloads the right binary for your platform (macOS/Linux, amd64/arm64) from
+the latest GitHub Release, verifies its checksum, and installs it to
+`/usr/local/bin` (falling back to `~/.local/bin`). Pin a version with
+`ARBORIST_VERSION=v0.1.0`, or change the destination with
+`ARBORIST_INSTALL_DIR`.
+
+### Manual download
+
+Grab an archive from the [releases page](https://github.com/jjacoblee/arborist/releases),
+verify it against `checksums.txt`, and put `arb` on your `PATH`:
+
+```bash
+tar xzf arborist_*.tar.gz
+sudo mv arb /usr/local/bin/
+```
+
 ### From source (contributors)
 
 Building from source requires Go 1.23+:

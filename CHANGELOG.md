@@ -6,7 +6,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-06-11
+## [0.1.0] - 2026-07-07
 
 First public release. Arborist is a guided CLI for managing Git worktrees across
 multiple repositories, built around per-owner workspaces.
@@ -47,6 +47,10 @@ multiple repositories, built around per-owner workspaces.
 - **Worktree layout** — base clones live at `<workspace>/<repo>`; worktrees at
   `<worktreeRoot>/<repo>/<sanitized-branch>` (worktree root defaults to a sibling
   `worktrees/` folder).
+- **Step-line progress output** — long-running commands narrate completed
+  actions as permanent lines (`✓ cloned acme/api`, `• skipped …`, `✗ …`,
+  `▸ setup api: pnpm install ✓`) with a spinner naming the action in flight.
+  Drawn only on an interactive terminal; piped output stays clean.
 - **Distribution** — a GoReleaser pipeline and `release` GitHub Actions workflow
   that publish cross-compiled macOS/Linux (amd64 + arm64) binaries and checksums
   on tagged releases, a `curl | sh` install script, and a ready-to-enable

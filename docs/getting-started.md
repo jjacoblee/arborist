@@ -35,7 +35,20 @@ authentication you need — no SSH keys or `known_hosts` setup.
 
 ## 3. Install Arborist
 
-Build from source. You will need Go 1.23+ installed:
+The quickest way is the install script — it downloads the right prebuilt binary
+for your platform (macOS/Linux, amd64/arm64) from the latest release, verifies
+its checksum, and puts `arb` on your `PATH`. No Go toolchain required:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jjacoblee/arborist/main/install.sh | sh
+```
+
+Pin a version with `ARBORIST_VERSION=v0.1.0`, or change the destination with
+`ARBORIST_INSTALL_DIR` (default `/usr/local/bin`, falling back to
+`~/.local/bin`). You can also download an archive yourself from the
+[releases page](https://github.com/jjacoblee/arborist/releases).
+
+Building from source instead (contributors, or Windows) requires Go 1.23+:
 
 ```bash
 git clone https://github.com/jjacoblee/arborist.git
