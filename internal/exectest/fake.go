@@ -68,18 +68,34 @@ type ShellCall struct {
 }
 
 // FakeShell is a scriptable exec.ShellRunner. It records each command and, when
-// Err is set, fails: for every command, or only those containing FailOn.
+// Err is set, fails: for every command, or only those containing FailOn. Out is
+// the captured output returned by RunShellCapture (for example to simulate an
+// install log on failure).
 type FakeShell struct {
 	Err    error
 	FailOn string
+	Out    []byte
 	Calls  []ShellCall
+}
+
+func (f *FakeShell) fail(command string) bool {
+	return f.Err != nil && (f.FailOn == "" || strings.Contains(command, f.FailOn))
 }
 
 // RunShell implements exec.ShellRunner.
 func (f *FakeShell) RunShell(_ context.Context, dir, command string) error {
 	f.Calls = append(f.Calls, ShellCall{Dir: dir, Command: command})
-	if f.Err != nil && (f.FailOn == "" || strings.Contains(command, f.FailOn)) {
+	if f.fail(command) {
 		return f.Err
 	}
 	return nil
+}
+
+// RunShellCapture implements exec.ShellRunner.
+func (f *FakeShell) RunShellCapture(_ context.Context, dir, command string) ([]byte, error) {
+	f.Calls = append(f.Calls, ShellCall{Dir: dir, Command: command})
+	if f.fail(command) {
+		return f.Out, f.Err
+	}
+	return f.Out, nil
 }
