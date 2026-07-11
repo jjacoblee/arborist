@@ -113,18 +113,19 @@ func planSetup(cfg config.Config, created []worktree.CreatedWorktree) []setupJob
 }
 
 // runAutoSetup runs the configured setup commands for each newly created
-// worktree quietly. Output is captured rather than streamed; each command gets
-// a permanent step line on errw ("▸ setup api: pnpm install ✓") with a
-// transient spinner while it runs, and only failures are reported on out (with
-// the failing command's captured output). This keeps a successful `arb new`
-// from being buried under install logs.
+// worktree quietly, returning the failures. Output is captured rather than
+// streamed; each command gets a permanent step line on errw ("▸ setup api:
+// pnpm install ✓") with a transient spinner while it runs. This keeps a
+// successful `arb new` from being buried under install logs. The caller
+// decides how to present the failures — printSetupFailures for the human
+// summary, writeNewJSON for --json.
 //
 // Setup failures are warnings, not hard errors: the worktrees still exist and
 // the user can re-run `arb setup <branch>`.
-func runAutoSetup(ctx context.Context, out, errw io.Writer, shell exec.ShellRunner, cfg config.Config, created []worktree.CreatedWorktree) {
+func runAutoSetup(ctx context.Context, errw io.Writer, shell exec.ShellRunner, cfg config.Config, created []worktree.CreatedWorktree) []setupFailure {
 	jobs := planSetup(cfg, created)
 	if len(jobs) == 0 {
-		return
+		return nil
 	}
 
 	steps := progress.NewSteps(errw)
@@ -151,6 +152,12 @@ func runAutoSetup(ctx context.Context, out, errw io.Writer, shell exec.ShellRunn
 	}
 	steps.Stop()
 
+	return failures
+}
+
+// printSetupFailures reports each failed setup command on out, with the tail
+// of its captured output (where the real error usually is) and a re-run hint.
+func printSetupFailures(out io.Writer, failures []setupFailure) {
 	for _, f := range failures {
 		fmt.Fprintf(out, "\nSetup failed for %s on `%s`.\n", f.repo, f.command)
 		if detail := lastLines(f.output, 20); detail != "" {
@@ -160,17 +167,27 @@ func runAutoSetup(ctx context.Context, out, errw io.Writer, shell exec.ShellRunn
 	}
 }
 
-// lastLines returns up to the last n lines of s, each indented two spaces, so a
-// failure shows the tail of the install log (where the real error usually is)
-// without dumping the entire output. It returns "" when s has no content.
-func lastLines(s string, n int) string {
+// tailLines returns up to the last n lines of s, so callers can show the tail
+// of an install log (where the real error usually is) without dumping the
+// entire output. It returns nil when s has no content.
+func tailLines(s string, n int) []string {
 	s = strings.TrimRight(s, "\n")
 	if strings.TrimSpace(s) == "" {
-		return ""
+		return nil
 	}
 	lines := strings.Split(s, "\n")
 	if len(lines) > n {
 		lines = lines[len(lines)-n:]
+	}
+	return lines
+}
+
+// lastLines is tailLines rendered for the human summary: each line indented
+// two spaces, joined with newlines. It returns "" when s has no content.
+func lastLines(s string, n int) string {
+	lines := tailLines(s, n)
+	if len(lines) == 0 {
+		return ""
 	}
 	for i, ln := range lines {
 		lines[i] = "  " + ln

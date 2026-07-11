@@ -67,6 +67,33 @@ func (c Client) ListRepos(ctx context.Context, owner string, limit int) ([]Repos
 	return parseRepos(out)
 }
 
+// ViewRepo looks up a single repository by "owner/name" via `gh repo view`.
+//
+// It is used when the caller already knows exactly which repository they
+// want (for example, `arb new --repo owner/name`) and wants to skip
+// account-wide discovery via ListRepos. If gh is missing, ViewRepo returns
+// ErrNotInstalled; if nameWithOwner does not resolve to a repository, it
+// returns whatever error gh reports (typically "repository not found").
+func (c Client) ViewRepo(ctx context.Context, nameWithOwner string) (Repository, error) {
+	out, err := c.runner.Run(ctx, "gh", "repo", "view", nameWithOwner, "--json", repoJSONFields)
+	if err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			return Repository{}, ErrNotInstalled
+		}
+		return Repository{}, fmt.Errorf("view repository %s: %w", nameWithOwner, err)
+	}
+
+	var raw ghRepo
+	if err := json.Unmarshal(out, &raw); err != nil {
+		return Repository{}, fmt.Errorf("parse gh repo view output for %s: %w", nameWithOwner, err)
+	}
+	repo, err := repoFromGH(raw)
+	if err != nil {
+		return Repository{}, fmt.Errorf("repository %s: %w", nameWithOwner, err)
+	}
+	return repo, nil
+}
+
 // CloneRepo clones nameWithOwner ("owner/repo") into dest using `gh repo clone`.
 //
 // Cloning through gh means Arborist relies entirely on the user's GitHub CLI
@@ -94,21 +121,30 @@ func parseRepos(data []byte) ([]Repository, error) {
 
 	repos := make([]Repository, 0, len(raw))
 	for i, r := range raw {
-		owner, name, ok := strings.Cut(r.NameWithOwner, "/")
-		if !ok || owner == "" || name == "" {
-			return nil, fmt.Errorf("repository %d: nameWithOwner %q is not in owner/name form", i, r.NameWithOwner)
+		repo, err := repoFromGH(r)
+		if err != nil {
+			return nil, fmt.Errorf("repository %d: %w", i, err)
 		}
-		// Prefer the explicit name field; fall back to the parsed segment.
-		if r.Name != "" {
-			name = r.Name
-		}
-
-		repos = append(repos, Repository{
-			Name:          name,
-			NameWithOwner: r.NameWithOwner,
-			Owner:         owner,
-			IsPrivate:     r.IsPrivate,
-		})
+		repos = append(repos, repo)
 	}
 	return repos, nil
+}
+
+// repoFromGH converts a decoded gh JSON object into a Repository, deriving
+// Owner from NameWithOwner ("owner/name") and preferring the explicit Name
+// field over the parsed segment when both are present.
+func repoFromGH(r ghRepo) (Repository, error) {
+	owner, name, ok := strings.Cut(r.NameWithOwner, "/")
+	if !ok || owner == "" || name == "" {
+		return Repository{}, fmt.Errorf("nameWithOwner %q is not in owner/name form", r.NameWithOwner)
+	}
+	if r.Name != "" {
+		name = r.Name
+	}
+	return Repository{
+		Name:          name,
+		NameWithOwner: r.NameWithOwner,
+		Owner:         owner,
+		IsPrivate:     r.IsPrivate,
+	}, nil
 }

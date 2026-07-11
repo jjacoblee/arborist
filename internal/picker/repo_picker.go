@@ -33,10 +33,14 @@ type Selector interface {
 type Huh struct{}
 
 // Select runs the interactive picker. It returns ErrNoRepositories if repos is
-// empty, and ErrCanceled if the user aborts the prompt.
+// empty, ErrNotATerminal if the session has no terminal to draw the prompt on,
+// and ErrCanceled if the user aborts the prompt.
 func (Huh) Select(ctx context.Context, branch string, repos []github.Repository) ([]github.Repository, error) {
 	if len(repos) == 0 {
 		return nil, ErrNoRepositories
+	}
+	if !interactiveSession() {
+		return nil, ErrNotATerminal
 	}
 
 	options, index := buildOptions(repos)

@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -70,6 +71,50 @@ func TestList_ScansWorktreeRoots(t *testing.T) {
 	}
 	if w := byPath[shallow]; w.Branch != "standalone" || w.Dirty {
 		t.Fatalf("shallow = %+v (want branch standalone, clean)", w)
+	}
+}
+
+// TestList_ContinuesPastBrokenWorktree guards the failure mode where one
+// corrupt worktree (git status fails, e.g. "unable to read <sha>") aborted the
+// entire listing. The broken worktree must still appear — with its error
+// recorded — alongside the healthy ones.
+func TestList_ContinuesPastBrokenWorktree(t *testing.T) {
+	wtRoot := t.TempDir()
+	broken := filepath.Join(wtRoot, "web", "broken-x")
+	healthy := filepath.Join(wtRoot, "web", "feature-x")
+	mkWorktreeDir(t, broken)
+	mkWorktreeDir(t, healthy)
+
+	statusErr := errors.New("run git: exit status 128: fatal: unable to read 0c71cf32")
+	g := &fakeGit{
+		MainRepoPathFn:  func(string) (string, error) { return "/clones/web", nil },
+		CurrentBranchFn: func(string) (string, error) { return "feature/x", nil },
+		IsDirtyFn: func(p string) (bool, error) {
+			if strings.Contains(p, "broken-x") {
+				return false, statusErr
+			}
+			return false, nil
+		},
+	}
+	s := Service{Git: g, Owner: "acme", WorktreeRoot: wtRoot}
+
+	got, err := s.List(context.Background())
+	if err != nil {
+		t.Fatalf("List should not fail because one worktree is broken: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d worktrees, want 2 (the broken one included): %+v", len(got), got)
+	}
+
+	byPath := map[string]ManagedWorktree{}
+	for _, w := range got {
+		byPath[w.Path] = w
+	}
+	if w := byPath[broken]; !errors.Is(w.Err, statusErr) {
+		t.Fatalf("broken worktree Err = %v, want it to wrap %v", w.Err, statusErr)
+	}
+	if w := byPath[healthy]; w.Err != nil {
+		t.Fatalf("healthy worktree unexpectedly has Err: %v", w.Err)
 	}
 }
 

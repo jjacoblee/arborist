@@ -111,6 +111,55 @@ func TestListRepos_GHMissing(t *testing.T) {
 	}
 }
 
+func TestViewRepo_ParsesAndBuildsCommand(t *testing.T) {
+	fake := &exectest.Fake{
+		Responses: map[string]exectest.Result{
+			exectest.Key("gh", "repo", "view", "acme/web-app", "--json", repoJSONFields): {
+				Out: []byte(`{"name":"web-app","nameWithOwner":"acme/web-app","isPrivate":true}`),
+			},
+		},
+	}
+
+	repo, err := New(fake).ViewRepo(context.Background(), "acme/web-app")
+	if err != nil {
+		t.Fatalf("ViewRepo: %v", err)
+	}
+	want := Repository{
+		Name:          "web-app",
+		NameWithOwner: "acme/web-app",
+		Owner:         "acme",
+		IsPrivate:     true,
+	}
+	if repo != want {
+		t.Fatalf("repo = %+v, want %+v", repo, want)
+	}
+
+	want2 := []string{"repo", "view", "acme/web-app", "--json", repoJSONFields}
+	got := fake.Calls[0].Args
+	if len(got) != len(want2) {
+		t.Fatalf("args = %v, want %v", got, want2)
+	}
+	for i := range want2 {
+		if got[i] != want2[i] {
+			t.Fatalf("arg[%d] = %q, want %q", i, got[i], want2[i])
+		}
+	}
+}
+
+func TestViewRepo_GHMissing(t *testing.T) {
+	fake := &exectest.Fake{Default: exectest.Result{Err: exec.ErrNotFound}}
+	if _, err := New(fake).ViewRepo(context.Background(), "acme/web"); !errors.Is(err, ErrNotInstalled) {
+		t.Fatalf("ViewRepo error = %v, want ErrNotInstalled", err)
+	}
+}
+
+func TestViewRepo_NotFound(t *testing.T) {
+	fake := &exectest.Fake{Default: exectest.Result{Err: errors.New("GraphQL: Could not resolve to a Repository")}}
+	if _, err := New(fake).ViewRepo(context.Background(), "acme/nope"); err == nil {
+		t.Fatal("expected an error for an unresolvable repository")
+	}
+}
+
 func TestCloneRepo(t *testing.T) {
 	fake := &exectest.Fake{}
 	if err := New(fake).CloneRepo(context.Background(), "acme/web", "/repos/acme/web"); err != nil {

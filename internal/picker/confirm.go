@@ -21,8 +21,12 @@ type Confirmer interface {
 // defaults to "no".
 type HuhConfirmer struct{}
 
-// Confirm implements Confirmer.
+// Confirm implements Confirmer. It returns ErrNotATerminal if the session has
+// no terminal to draw the prompt on.
 func (HuhConfirmer) Confirm(ctx context.Context, prompt string) (bool, error) {
+	if !interactiveSession() {
+		return false, ErrNotATerminal
+	}
 	var ok bool
 	field := huh.NewConfirm().Title(prompt).Value(&ok)
 

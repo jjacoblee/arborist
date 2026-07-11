@@ -2,12 +2,14 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/jjacoblee/arborist/internal/exectest"
+	"github.com/jjacoblee/arborist/internal/picker"
 	"github.com/jjacoblee/arborist/internal/pickertest"
 	"github.com/jjacoblee/arborist/internal/worktree"
 )
@@ -159,6 +161,119 @@ func TestRemove_DirtyWithForceAndYes(t *testing.T) {
 	}
 	if !strings.Contains(out, "Removed acme/web") {
 		t.Fatalf("expected removal summary, got:\n%s", out)
+	}
+}
+
+// removeJSONResult mirrors the `arb remove --json` output shape for assertions.
+type removeJSONResult struct {
+	Removed []struct {
+		Repository string `json:"repository"`
+		Branch     string `json:"branch"`
+		Path       string `json:"path"`
+	} `json:"removed"`
+	Skipped []struct {
+		Worktree struct {
+			Path   string `json:"path"`
+			Status string `json:"status"`
+		} `json:"worktree"`
+		Reason string `json:"reason"`
+	} `json:"skipped"`
+	Failed []json.RawMessage `json:"failed"`
+}
+
+func TestRemove_JSON_RequiresYes(t *testing.T) {
+	dir, _, fake := removeFixture(t, false)
+	conf := &pickertest.FakeConfirmer{Result: true}
+
+	_, err := runRemove(t, fake, conf, "remove", "feature/x", "--dir", dir, "--json")
+	if err == nil || !strings.Contains(err.Error(), "--yes") {
+		t.Fatalf("expected an error pointing at --yes, got: %v", err)
+	}
+	if conf.Calls != 0 {
+		t.Fatal("the confirmation prompt must never run under --json")
+	}
+	if calledWorktreeRemove(fake) {
+		t.Fatal("must not remove anything when --json lacks --yes")
+	}
+}
+
+func TestRemove_JSON_Output(t *testing.T) {
+	dir, wtPath, fake := removeFixture(t, false)
+	conf := &pickertest.FakeConfirmer{} // unused: --json requires --yes
+
+	out, err := runRemove(t, fake, conf, "remove", "feature/x", "--dir", dir, "--json", "--yes")
+	if err != nil {
+		t.Fatalf("remove --json --yes: %v\n%s", err, out)
+	}
+	var res removeJSONResult
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("output is not valid JSON: %v\n%s", err, out)
+	}
+	if len(res.Removed) != 1 || len(res.Skipped) != 0 || len(res.Failed) != 0 {
+		t.Fatalf("removed/skipped/failed = %d/%d/%d, want 1/0/0\n%s",
+			len(res.Removed), len(res.Skipped), len(res.Failed), out)
+	}
+	if res.Removed[0].Repository != "acme/web" || res.Removed[0].Path != wtPath {
+		t.Fatalf("removed = %+v", res.Removed[0])
+	}
+	if !calledWorktreeRemove(fake) {
+		t.Fatalf("expected git worktree remove; calls: %+v", fake.Calls)
+	}
+}
+
+// TestRemove_JSON_DirtyReportedAsSkipped: unlike the human path (which stops
+// before doing anything when nothing is removable), --json always produces a
+// complete document — the dirty worktree shows up under "skipped" with its
+// reason, and nothing is removed.
+func TestRemove_JSON_DirtyReportedAsSkipped(t *testing.T) {
+	dir, wtPath, fake := removeFixture(t, true) // dirty
+
+	out, err := runRemove(t, fake, &pickertest.FakeConfirmer{}, "remove", "feature/x", "--dir", dir, "--json", "--yes")
+	if err != nil {
+		t.Fatalf("remove --json --yes: %v\n%s", err, out)
+	}
+	var res removeJSONResult
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("output is not valid JSON: %v\n%s", err, out)
+	}
+	if len(res.Removed) != 0 || len(res.Skipped) != 1 {
+		t.Fatalf("removed/skipped = %d/%d, want 0/1\n%s", len(res.Removed), len(res.Skipped), out)
+	}
+	s := res.Skipped[0]
+	if s.Worktree.Path != wtPath || s.Worktree.Status != "dirty" || !strings.Contains(s.Reason, "uncommitted") {
+		t.Fatalf("skipped = %+v", s)
+	}
+	if calledWorktreeRemove(fake) {
+		t.Fatal("must never remove a dirty worktree without --force")
+	}
+}
+
+func TestRemove_JSON_NoMatchesIsEmptyDocument(t *testing.T) {
+	dir, _, fake := removeFixture(t, false)
+
+	out, err := runRemove(t, fake, &pickertest.FakeConfirmer{}, "remove", "does/not-exist", "--dir", dir, "--json", "--yes")
+	if err != nil {
+		t.Fatalf("remove --json (no matches): %v", err)
+	}
+	var res removeJSONResult
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatalf("output is not valid JSON: %v\n%s", err, out)
+	}
+	if len(res.Removed) != 0 || len(res.Skipped) != 0 || len(res.Failed) != 0 {
+		t.Fatalf("expected an empty document, got:\n%s", out)
+	}
+}
+
+func TestRemove_ConfirmWithoutTerminal_PointsAtYes(t *testing.T) {
+	dir, _, fake := removeFixture(t, false)
+	conf := &pickertest.FakeConfirmer{Err: picker.ErrNotATerminal}
+
+	_, err := runRemove(t, fake, conf, "remove", "feature/x", "--dir", dir)
+	if err == nil || !strings.Contains(err.Error(), "--yes") {
+		t.Fatalf("expected the non-TTY hint to point at --yes, got: %v", err)
+	}
+	if calledWorktreeRemove(fake) {
+		t.Fatal("must not remove anything without confirmation")
 	}
 }
 
