@@ -168,7 +168,8 @@ func newService(t *testing.T, g Git, c Cloner) Service {
 }
 
 func TestCreate_NewBranchFromDefault_ClonesMissingRepo(t *testing.T) {
-	g := &fakeGit{}
+	// The feature branch is nowhere yet, but the default branch is on origin.
+	g := &fakeGit{RemoteExistsFn: func(_, branch string) bool { return branch == "main" }}
 	c := &fakeCloner{}
 	s := newService(t, g, c)
 
@@ -188,8 +189,28 @@ func TestCreate_NewBranchFromDefault_ClonesMissingRepo(t *testing.T) {
 	if len(c.Cloned) != 1 {
 		t.Fatalf("expected a clone, got %v", c.Cloned)
 	}
-	if len(g.Added) != 1 || !g.Added[0].CreateNew || g.Added[0].BaseRef != "main" {
-		t.Fatalf("AddWorktree opts = %+v, want CreateNew from main", g.Added)
+	// Create fetches immediately before this, which updates origin/main but
+	// never the local main. Branching from the local ref would start the work
+	// from whatever tip was last pulled by hand.
+	if len(g.Added) != 1 || !g.Added[0].CreateNew || g.Added[0].BaseRef != "origin/main" {
+		t.Fatalf("AddWorktree opts = %+v, want CreateNew from origin/main", g.Added)
+	}
+}
+
+func TestCreate_NewBranchUsesLocalDefaultWhenNotOnRemote(t *testing.T) {
+	// A repository whose default branch exists only locally (no origin ref yet)
+	// still has to be usable as a base.
+	g := &fakeGit{RemoteExistsFn: func(_, branch string) bool { return false }}
+	c := &fakeCloner{}
+	s := newService(t, g, c)
+
+	res := s.Create(context.Background(), "feature/x", "", []github.Repository{testRepo()})
+
+	if len(res.Created) != 1 {
+		t.Fatalf("unexpected result: %+v", res)
+	}
+	if len(g.Added) != 1 || g.Added[0].BaseRef != "main" {
+		t.Fatalf("AddWorktree opts = %+v, want a fallback to local main", g.Added)
 	}
 }
 

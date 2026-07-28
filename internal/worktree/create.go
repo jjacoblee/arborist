@@ -190,7 +190,15 @@ func (s Service) createOne(ctx context.Context, branch, name string, repo github
 				fail(fmt.Errorf("detect default branch: %w", err))
 				return
 			}
+			// Prefer the remote-tracking ref: the fetch above refreshed
+			// origin/<default> but left the local branch wherever it was last
+			// pulled, so branching from the local ref would silently start the
+			// work from a stale tip. Fall back to the local branch for a
+			// repository whose default isn't on origin yet.
 			opts.BaseRef = base
+			if s.Git.RemoteBranchExists(ctx, repoPath, base) {
+				opts.BaseRef = "origin/" + base
+			}
 			source = SourceNewBranch
 		}
 	}
