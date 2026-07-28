@@ -35,6 +35,66 @@ func ghOK(repoJSON string) map[string]exectest.Result {
 	}
 }
 
+const twoRepoJSON = `[{"name":"web","nameWithOwner":"acme/web","isPrivate":false},
+{"name":"api","nameWithOwner":"acme/api","isPrivate":false}]`
+
+func TestNew_RepoFlagSkipsPicker(t *testing.T) {
+	runner := &exectest.Fake{Responses: ghOK(twoRepoJSON)}
+	sel := &pickertest.Fake{}
+
+	out, err := runNew(t, runner, sel, "new", "feature/x", "--dir", writeWorkspace(t, "acme"), "--repo", "api")
+	if err != nil {
+		t.Fatalf("new --repo: %v\n%s", err, out)
+	}
+	if sel.Calls != 0 {
+		t.Fatal("naming repositories must skip the picker entirely")
+	}
+	if !strings.Contains(out, "acme/api") {
+		t.Fatalf("expected a worktree for acme/api, got:\n%s", out)
+	}
+	if strings.Contains(out, "acme/web") {
+		t.Fatalf("only the named repository should be used, got:\n%s", out)
+	}
+}
+
+func TestNew_RepoFlagAcceptsListForms(t *testing.T) {
+	for _, args := range [][]string{
+		{"--repo", "api", "--repo", "web"},
+		{"--repo", "api,web"},
+		{"--repo", "api web"},
+	} {
+		runner := &exectest.Fake{Responses: ghOK(twoRepoJSON)}
+		sel := &pickertest.Fake{}
+
+		cmdArgs := append([]string{"new", "feature/x", "--dir", writeWorkspace(t, "acme")}, args...)
+		out, err := runNew(t, runner, sel, cmdArgs...)
+		if err != nil {
+			t.Fatalf("new %v: %v\n%s", args, err, out)
+		}
+		if !strings.Contains(out, "acme/api") || !strings.Contains(out, "acme/web") {
+			t.Fatalf("new %v should use both repositories, got:\n%s", args, out)
+		}
+	}
+}
+
+func TestNew_UnknownRepoFailsWithoutCreatingAnything(t *testing.T) {
+	runner := &exectest.Fake{Responses: ghOK(twoRepoJSON)}
+	sel := &pickertest.Fake{}
+
+	_, err := runNew(t, runner, sel, "new", "feature/x", "--dir", writeWorkspace(t, "acme"), "--repo", "api,wbe")
+	if err == nil {
+		t.Fatal("expected an error for an unknown repository")
+	}
+	if !strings.Contains(err.Error(), "wbe") {
+		t.Fatalf("error should name the unknown repository, got: %v", err)
+	}
+	for _, c := range runner.Calls {
+		if c.Name == "git" && len(c.Args) >= 4 && c.Args[2] == "worktree" && c.Args[3] == "add" {
+			t.Fatalf("nothing may be created when a name is unknown; got %+v", c)
+		}
+	}
+}
+
 func TestNew_InvalidBranch_FailsFastWithoutCommands(t *testing.T) {
 	runner := &exectest.Fake{}
 	sel := &pickertest.Fake{}

@@ -102,7 +102,7 @@ prerequisites, installation, and your first `arb new` step by step.
 | Command | Description |
 | --- | --- |
 | `arb init --owner <owner>` | Set up an owner workspace in the current directory (writes `.arborist.json`). |
-| `arb new <branch-name>` | The flagship workflow: pick repositories, clone any that are missing, and create worktrees for the branch, then run your configured setup commands (`--no-setup` to skip). `--name <short>` gives the worktree folder a short name; `--base <ref>` branches off a chosen ref instead of the default branch. |
+| `arb new <branch-name>` | The flagship workflow: pick repositories, clone any that are missing, and create worktrees for the branch, then run your configured setup commands (`--no-setup` to skip). `--repo api,web` names the repositories up front and skips the picker (repeatable; also accepts space-separated names). `--name <short>` gives the worktree folder a short name; `--base <ref>` branches off a chosen ref instead of the default branch. |
 | `arb list` | List managed worktrees, each with a short **id**; paths are shown relative to the worktree root (use `--full` for absolute). |
 | `arb open <id-or-branch>` | Open a worktree in your editor (`--cursor`, `--code`, `--editor <cmd>`, or your configured default), or print its path with `--print`. |
 | `arb setup <id-or-branch>` | Run this workspace's configured setup commands in a worktree (e.g. `pnpm install`, `uv sync`). Runs automatically after `arb new`. |
@@ -217,7 +217,8 @@ Implemented today:
   per owner, discovered by walking up from the current directory.
 - `arb new <branch>`: the flagship workflow — searchable multi-select repo
   picker, clone-if-missing, fetch, default-branch detection, safe branch-source
-  selection, and a created/skipped/failed summary. `--name` for short folders.
+  selection, and a created/skipped/failed summary. `--name` for short folders,
+  `--repo` to name repositories up front and skip the picker.
 - `arb list`: managed worktrees with a short, stable **id** and relative paths
   (`--full` for absolute).
 - `arb open <id-or-branch>`: open a worktree in your editor (`--cursor`,

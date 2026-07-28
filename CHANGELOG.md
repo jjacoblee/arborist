@@ -6,7 +6,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`arb new` no longer branches off a stale default branch.** It fetched before
+  choosing a branch source, but then created new branches from the *local*
+  default branch — and `git fetch` updates `origin/main`, never local `main`. A
+  workspace whose base clone hadn't been pulled by hand therefore started every
+  new branch from whatever tip it was last left at. New branches now come from
+  `origin/<default>`, falling back to the local branch for a repository whose
+  default isn't on origin yet. `--base <ref>` is unchanged: a ref you name
+  explicitly still resolves to your local copy when you have one.
+
 ### Added
+
+- **`arb new --repo`.** Name the repositories up front and skip the picker
+  entirely, so `arb new` works from a script and repeat workflows stop
+  re-selecting the same set: `arb new my-branch --repo api,web`. The flag is
+  repeatable and also accepts space-separated names, so `--repo api --repo web`,
+  `--repo api,web`, and `--repo "api web"` are equivalent. Names may be bare
+  (`api`) or owner-qualified (`acme/api`), and match case-insensitively. A name
+  that matches no repository fails the command before anything is created,
+  reporting every unknown name at once.
 
 - **Interactive bulk removal.** `arb remove` with no argument now opens a
   searchable multi-select picker of the worktrees that are safe to remove, so

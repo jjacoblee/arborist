@@ -15,11 +15,12 @@ import (
 // newNewCmd builds the flagship "arb new <branch-name>" command.
 func newNewCmd(d deps) *cobra.Command {
 	var (
-		dir     string
-		name    string
-		base    string
-		limit   int
-		noSetup bool
+		dir       string
+		name      string
+		base      string
+		limit     int
+		noSetup   bool
+		repoFlags []string
 	)
 
 	cmd := &cobra.Command{
@@ -33,6 +34,17 @@ and shows an interactive picker. For each selected repository it clones the repo
 if needed, fetches, and creates a worktree for the branch (reusing an existing
 branch, tracking a remote branch, or creating a new branch from the default
 branch as appropriate).
+
+Use --repo to name the repositories up front and skip the picker entirely, which
+makes the command usable from a script. It is repeatable and also accepts comma-
+or space-separated names, so these are equivalent:
+
+  arb new my-branch --repo api --repo web
+  arb new my-branch --repo api,web
+  arb new my-branch --repo "api web"
+
+A name may be bare ("api") or owner-qualified ("acme/api"). If any name matches
+no repository the command fails without creating anything.
 
 Use --base to branch off something other than the default branch (for example
 another feature branch); it applies only when the branch is newly created.`,
@@ -66,17 +78,27 @@ another feature branch); it applies only when the branch is newly created.`,
 				return fmt.Errorf("no repositories found for %q", ws.Config.Owner)
 			}
 
-			selected, err := d.selector.Select(ctx, branch, repos)
-			if err != nil {
-				if errors.Is(err, picker.ErrCanceled) {
-					fmt.Fprintln(out, "Canceled. No worktrees were created.")
+			var selected []github.Repository
+			if names := parseRepoFlag(repoFlags); len(names) > 0 {
+				// Naming repositories is a statement of intent: resolve them and
+				// go straight to work, with no interactive step to hang a script.
+				selected, err = github.MatchRepos(repos, names)
+				if err != nil {
+					return err
+				}
+			} else {
+				selected, err = d.selector.Select(ctx, branch, repos)
+				if err != nil {
+					if errors.Is(err, picker.ErrCanceled) {
+						fmt.Fprintln(out, "Canceled. No worktrees were created.")
+						return nil
+					}
+					return err
+				}
+				if len(selected) == 0 {
+					fmt.Fprintln(out, "No repositories selected. Nothing to do.")
 					return nil
 				}
-				return err
-			}
-			if len(selected) == 0 {
-				fmt.Fprintln(out, "No repositories selected. Nothing to do.")
-				return nil
 			}
 
 			svc, err := newWorktreeService(g, h, ws)
@@ -111,6 +133,8 @@ another feature branch); it applies only when the branch is newly created.`,
 		},
 	}
 
+	cmd.Flags().StringSliceVar(&repoFlags, "repo", nil,
+		"repositories to use instead of opening the picker; repeatable, and accepts comma- or space-separated names (e.g. --repo api,web)")
 	cmd.Flags().IntVar(&limit, "limit", github.DefaultRepoLimit, "maximum number of repositories to fetch")
 	cmd.Flags().StringVar(&name, "name", "",
 		"short worktree folder name to use instead of the full branch (branch is unchanged)")
