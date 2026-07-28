@@ -115,6 +115,51 @@ func TestFindForRemoval_AmbiguousID(t *testing.T) {
 	}
 }
 
+func TestRemove_PrunesEmptiedParentDirectories(t *testing.T) {
+	wtRoot := t.TempDir()
+	// A group holding two repos: emptying one repo folder should take it, but
+	// the group must survive while the other repo still has work in it.
+	gone := filepath.Join(wtRoot, "review", "web", "pr-1234")
+	kept := filepath.Join(wtRoot, "review", "api", "pr-1234")
+	mkWorktreeDir(t, gone)
+	mkWorktreeDir(t, kept)
+
+	// The fake stands in for git actually deleting the checkout directory.
+	g := &fakeGit{RemoveFn: func(_, path string, _ bool) error { return os.RemoveAll(path) }}
+	s := Service{Git: g, Owner: "acme", WorktreeRoot: wtRoot}
+
+	res := s.Remove(context.Background(), []ManagedWorktree{
+		{Repo: "web", Branch: "pr/1234", Path: gone, RepoPath: "/clones/web"},
+	}, false)
+	if len(res.Removed) != 1 {
+		t.Fatalf("unexpected result: %+v", res)
+	}
+
+	if _, err := os.Stat(filepath.Join(wtRoot, "review", "web")); !os.IsNotExist(err) {
+		t.Fatal("the emptied repo folder should have been pruned")
+	}
+	if _, err := os.Stat(filepath.Join(wtRoot, "review")); err != nil {
+		t.Fatal("the group must survive while another repo still has worktrees in it")
+	}
+}
+
+func TestRemove_NeverPrunesTheWorktreeRoot(t *testing.T) {
+	wtRoot := t.TempDir()
+	only := filepath.Join(wtRoot, "web", "feature-x")
+	mkWorktreeDir(t, only)
+
+	g := &fakeGit{RemoveFn: func(_, path string, _ bool) error { return os.RemoveAll(path) }}
+	s := Service{Git: g, Owner: "acme", WorktreeRoot: wtRoot}
+
+	s.Remove(context.Background(), []ManagedWorktree{
+		{Repo: "web", Branch: "feature/x", Path: only, RepoPath: "/clones/web"},
+	}, false)
+
+	if _, err := os.Stat(wtRoot); err != nil {
+		t.Fatalf("the worktree root itself must never be removed: %v", err)
+	}
+}
+
 func TestRemove_CleanIsRemoved(t *testing.T) {
 	g := &fakeGit{}
 	s, _ := serviceWithWorktrees(t, g)
