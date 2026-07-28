@@ -56,6 +56,23 @@ func (c Client) DeleteBranch(ctx context.Context, repoPath, branch string, force
 	return fmt.Errorf("delete branch %s in %s: %w", branch, repoPath, err)
 }
 
+// HasUnpushedCommits reports whether the worktree (or repo) at path is holding
+// commits that exist on no origin remote-tracking ref — work that would be lost
+// with the checkout.
+//
+// It counts against every refs/remotes/origin ref rather than the branch's
+// upstream, so a branch that was never pushed at all answers correctly instead
+// of failing for want of an upstream.
+func (c Client) HasUnpushedCommits(ctx context.Context, path string) (bool, error) {
+	out, err := c.runner.Run(ctx, "git", "-C", path,
+		"rev-list", "--count", "HEAD", "--not", "--remotes=origin")
+	if err != nil {
+		return false, fmt.Errorf("count unpushed commits for %s: %w", path, err)
+	}
+	count := strings.TrimSpace(string(out))
+	return count != "" && count != "0", nil
+}
+
 // LocalBranches returns the short names of every local branch in the repository
 // at repoPath.
 //

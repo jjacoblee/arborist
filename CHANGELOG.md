@@ -8,6 +8,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Interactive bulk removal.** `arb remove` with no argument now opens a
+  searchable multi-select picker of the worktrees that are safe to remove, so
+  cleaning up a backlog no longer means one `arb remove <branch>` at a time.
+  `arb remove <id-or-branch>` is unchanged.
+
+  By default the picker lists only clean worktrees, so nothing risky is even
+  selectable. `--force` lists every worktree instead, marking each with
+  `[dirty]` (uncommitted changes or untracked files) and `[unpushed]` (commits
+  that exist on no origin ref). The selection is then summarized with full paths
+  and confirmed before anything is deleted, and any branch the removal orphans
+  goes through the same deletion offer as above.
+
 - **Local branch cleanup.** Removing a worktree used to leave its branch ref
   behind, so re-adding the worktree checked out the same stale branch again.
   `arb remove` now notices when a removal takes a branch's last worktree and

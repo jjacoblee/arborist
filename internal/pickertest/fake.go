@@ -7,6 +7,7 @@ import (
 	"context"
 
 	"github.com/jjacoblee/arborist/internal/github"
+	"github.com/jjacoblee/arborist/internal/picker"
 )
 
 // Fake is a non-interactive picker.Selector. It returns the configured Result
@@ -26,6 +27,24 @@ func (f *Fake) Select(_ context.Context, branch string, repos []github.Repositor
 	f.Calls++
 	f.GotBranch = branch
 	f.GotRepos = repos
+	return f.Result, f.Err
+}
+
+// FakeWorktreeSelector is a non-interactive picker.WorktreeSelector for tests.
+// It returns the configured Result and Err, and records what it was offered.
+type FakeWorktreeSelector struct {
+	Result []string
+	Err    error
+
+	// GotChoices records the worktrees offered in the most recent call.
+	GotChoices []picker.WorktreeChoice
+	Calls      int
+}
+
+// SelectWorktrees implements picker.WorktreeSelector.
+func (f *FakeWorktreeSelector) SelectWorktrees(_ context.Context, choices []picker.WorktreeChoice) ([]string, error) {
+	f.Calls++
+	f.GotChoices = choices
 	return f.Result, f.Err
 }
 

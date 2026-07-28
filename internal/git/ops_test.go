@@ -158,6 +158,35 @@ func TestDeleteBranch_NotMerged(t *testing.T) {
 	}
 }
 
+func TestHasUnpushedCommits(t *testing.T) {
+	args := []string{"-C", "/wt", "rev-list", "--count", "HEAD", "--not", "--remotes=origin"}
+
+	pushed := &exectest.Fake{Responses: map[string]exectest.Result{
+		exectest.Key("git", args...): {Out: []byte("0\n")},
+	}}
+	got, err := New(pushed).HasUnpushedCommits(context.Background(), "/wt")
+	if err != nil {
+		t.Fatalf("HasUnpushedCommits: %v", err)
+	}
+	if got {
+		t.Fatal("a count of 0 means everything is on a remote")
+	}
+
+	unpushed := &exectest.Fake{Responses: map[string]exectest.Result{
+		exectest.Key("git", args...): {Out: []byte("3\n")},
+	}}
+	got, err = New(unpushed).HasUnpushedCommits(context.Background(), "/wt")
+	if err != nil {
+		t.Fatalf("HasUnpushedCommits: %v", err)
+	}
+	if !got {
+		t.Fatal("a non-zero count means there is local-only work")
+	}
+	if a := lastArgs(unpushed); !reflect.DeepEqual(a, args) {
+		t.Fatalf("args = %v, want %v", a, args)
+	}
+}
+
 func TestLocalBranches(t *testing.T) {
 	f := &exectest.Fake{
 		Responses: map[string]exectest.Result{

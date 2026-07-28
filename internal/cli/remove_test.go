@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/jjacoblee/arborist/internal/exectest"
+	"github.com/jjacoblee/arborist/internal/picker"
 	"github.com/jjacoblee/arborist/internal/pickertest"
 	"github.com/jjacoblee/arborist/internal/worktree"
 )
@@ -55,6 +56,235 @@ func calledWorktreeRemove(fake *exectest.Fake) bool {
 		}
 	}
 	return false
+}
+
+// pickerFixture sets up a workspace with a clean worktree (web/feature-x) and a
+// dirty one (web/spike), and returns the workspace dir plus a wired runner.
+func pickerFixture(t *testing.T) (dir string, fake *exectest.Fake) {
+	t.Helper()
+	dir = writeWorkspace(t, "acme")
+	baseRepo := filepath.Join(dir, "web")
+	clean := filepath.Join(workspaceWorktreeRoot(dir), "web", "feature-x")
+	dirty := filepath.Join(workspaceWorktreeRoot(dir), "web", "spike")
+	mkWorktree(t, clean)
+	mkWorktree(t, dirty)
+
+	fake = &exectest.Fake{Responses: map[string]exectest.Result{}}
+	for path, spec := range map[string]struct {
+		branch string
+		dirty  bool
+	}{
+		clean: {branch: "feature/x"},
+		dirty: {branch: "spike", dirty: true},
+	} {
+		fake.Responses[exectest.Key("git", "-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir")] = exectest.Result{Out: []byte(baseRepo + "/.git\n")}
+		fake.Responses[exectest.Key("git", "-C", path, "branch", "--show-current")] = exectest.Result{Out: []byte(spec.branch + "\n")}
+		status := exectest.Result{}
+		if spec.dirty {
+			status = exectest.Result{Out: []byte(" M file.go\n")}
+		}
+		fake.Responses[exectest.Key("git", "-C", path, "status", "--porcelain")] = status
+	}
+	return dir, fake
+}
+
+// runRemoveWith runs a command with a worktree picker wired in.
+func runRemoveWith(t *testing.T, fake *exectest.Fake, conf *pickertest.FakeConfirmer,
+	sel *pickertest.FakeWorktreeSelector, args ...string) (string, error) {
+	t.Helper()
+	cmd := newRootCmd("dev", deps{runner: fake, confirmer: conf, worktreeSelector: sel})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs(args)
+	err := cmd.Execute()
+	return out.String(), err
+}
+
+// removedPaths returns the worktree paths git was asked to remove.
+func removedPaths(fake *exectest.Fake) []string {
+	var paths []string
+	for _, c := range fake.Calls {
+		if c.Name == "git" && len(c.Args) >= 5 && c.Args[2] == "worktree" && c.Args[3] == "remove" {
+			paths = append(paths, c.Args[len(c.Args)-1])
+		}
+	}
+	return paths
+}
+
+func TestRemove_NoArgsOpensPicker(t *testing.T) {
+	dir, fake := pickerFixture(t)
+	clean := filepath.Join(workspaceWorktreeRoot(dir), "web", "feature-x")
+	sel := &pickertest.FakeWorktreeSelector{Result: []string{worktree.ID(clean)}}
+	conf := &pickertest.FakeConfirmer{Result: true}
+
+	out, err := runRemoveWith(t, fake, conf, sel, "remove", "--dir", dir)
+	if err != nil {
+		t.Fatalf("remove: %v\n%s", err, out)
+	}
+	if sel.Calls != 1 {
+		t.Fatalf("expected the picker to open once, got %d calls", sel.Calls)
+	}
+	if got := removedPaths(fake); len(got) != 1 || got[0] != clean {
+		t.Fatalf("removed %v, want just %s", got, clean)
+	}
+}
+
+func TestRemove_PickerHidesDirtyWithoutForce(t *testing.T) {
+	dir, fake := pickerFixture(t)
+	sel := &pickertest.FakeWorktreeSelector{}
+	conf := &pickertest.FakeConfirmer{Result: true}
+
+	if _, err := runRemoveWith(t, fake, conf, sel, "remove", "--dir", dir); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	if len(sel.GotChoices) != 1 {
+		t.Fatalf("picker was offered %+v, want only the clean worktree", sel.GotChoices)
+	}
+	if sel.GotChoices[0].Branch != "feature/x" {
+		t.Fatalf("offered %+v, want feature/x", sel.GotChoices[0])
+	}
+}
+
+func TestRemove_PickerShowsDirtyWithForce(t *testing.T) {
+	dir, fake := pickerFixture(t)
+	sel := &pickertest.FakeWorktreeSelector{}
+	conf := &pickertest.FakeConfirmer{Result: true}
+
+	if _, err := runRemoveWith(t, fake, conf, sel, "remove", "--dir", dir, "--force"); err != nil {
+		t.Fatalf("remove --force: %v", err)
+	}
+	if len(sel.GotChoices) != 2 {
+		t.Fatalf("picker was offered %+v, want both worktrees", sel.GotChoices)
+	}
+	var sawDirty bool
+	for _, c := range sel.GotChoices {
+		if c.Dirty {
+			sawDirty = true
+		}
+	}
+	if !sawDirty {
+		t.Fatalf("the dirty worktree must be marked in the picker: %+v", sel.GotChoices)
+	}
+}
+
+func TestRemove_PickerRequiresConfirmation(t *testing.T) {
+	dir, fake := pickerFixture(t)
+	clean := filepath.Join(workspaceWorktreeRoot(dir), "web", "feature-x")
+	sel := &pickertest.FakeWorktreeSelector{Result: []string{worktree.ID(clean)}}
+	conf := &pickertest.FakeConfirmer{Result: false}
+
+	out, err := runRemoveWith(t, fake, conf, sel, "remove", "--dir", dir)
+	if err != nil {
+		t.Fatalf("remove: %v\n%s", err, out)
+	}
+	if conf.Calls == 0 {
+		t.Fatal("a picker selection must still be confirmed before deleting")
+	}
+	if !strings.Contains(out, "Aborted") {
+		t.Fatalf("expected an abort message, got:\n%s", out)
+	}
+	if len(removedPaths(fake)) != 0 {
+		t.Fatalf("nothing may be removed when the user declines; calls: %+v", fake.Calls)
+	}
+}
+
+func TestRemove_PickerEmptySelection(t *testing.T) {
+	dir, fake := pickerFixture(t)
+	sel := &pickertest.FakeWorktreeSelector{Result: nil}
+	conf := &pickertest.FakeConfirmer{Result: true}
+
+	out, err := runRemoveWith(t, fake, conf, sel, "remove", "--dir", dir)
+	if err != nil {
+		t.Fatalf("remove: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Nothing selected") {
+		t.Fatalf("expected a nothing-selected message, got:\n%s", out)
+	}
+	if conf.Calls != 0 {
+		t.Fatal("an empty selection should not reach the confirmation prompt")
+	}
+	if len(removedPaths(fake)) != 0 {
+		t.Fatalf("nothing may be removed; calls: %+v", fake.Calls)
+	}
+}
+
+func TestRemove_PickerCanceled(t *testing.T) {
+	dir, fake := pickerFixture(t)
+	sel := &pickertest.FakeWorktreeSelector{Err: picker.ErrCanceled}
+	conf := &pickertest.FakeConfirmer{Result: true}
+
+	out, err := runRemoveWith(t, fake, conf, sel, "remove", "--dir", dir)
+	if err != nil {
+		t.Fatalf("canceling the picker is not an error: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Aborted") {
+		t.Fatalf("expected an abort message, got:\n%s", out)
+	}
+	if len(removedPaths(fake)) != 0 {
+		t.Fatalf("nothing may be removed; calls: %+v", fake.Calls)
+	}
+}
+
+func TestRemove_PickerNothingSafeToRemove(t *testing.T) {
+	dir := writeWorkspace(t, "acme")
+	baseRepo := filepath.Join(dir, "web")
+	dirty := filepath.Join(workspaceWorktreeRoot(dir), "web", "spike")
+	mkWorktree(t, dirty)
+	fake := &exectest.Fake{Responses: map[string]exectest.Result{
+		exectest.Key("git", "-C", dirty, "rev-parse", "--path-format=absolute", "--git-common-dir"): {Out: []byte(baseRepo + "/.git\n")},
+		exectest.Key("git", "-C", dirty, "branch", "--show-current"):                                {Out: []byte("spike\n")},
+		exectest.Key("git", "-C", dirty, "status", "--porcelain"):                                   {Out: []byte(" M file.go\n")},
+	}}
+	sel := &pickertest.FakeWorktreeSelector{}
+
+	out, err := runRemoveWith(t, fake, &pickertest.FakeConfirmer{}, sel, "remove", "--dir", dir)
+	if err != nil {
+		t.Fatalf("remove: %v\n%s", err, out)
+	}
+	if sel.Calls != 0 {
+		t.Fatal("the picker should not open with nothing to offer")
+	}
+	if !strings.Contains(out, "--force") {
+		t.Fatalf("expected the message to point at --force, got:\n%s", out)
+	}
+}
+
+func TestRemove_PickerWithNoWorktreesAtAll(t *testing.T) {
+	dir := writeWorkspace(t, "acme")
+	sel := &pickertest.FakeWorktreeSelector{}
+
+	out, err := runRemoveWith(t, &exectest.Fake{}, &pickertest.FakeConfirmer{}, sel, "remove", "--dir", dir)
+	if err != nil {
+		t.Fatalf("remove: %v\n%s", err, out)
+	}
+	if sel.Calls != 0 {
+		t.Fatal("the picker should not open with nothing to offer")
+	}
+	if strings.Contains(out, "uncommitted") || strings.Contains(out, "--force") {
+		t.Fatalf("with no worktrees at all, --force changes nothing; got:\n%s", out)
+	}
+	if !strings.Contains(out, "No worktrees") {
+		t.Fatalf("expected a no-worktrees message, got:\n%s", out)
+	}
+}
+
+func TestRemove_PickerOffersBranchCleanup(t *testing.T) {
+	dir, fake := pickerFixture(t)
+	clean := filepath.Join(workspaceWorktreeRoot(dir), "web", "feature-x")
+	sel := &pickertest.FakeWorktreeSelector{Result: []string{worktree.ID(clean)}}
+	conf := &pickertest.FakeConfirmer{Result: true} // yes to removal and to the branch
+
+	out, err := runRemoveWith(t, fake, conf, sel, "remove", "--dir", dir)
+	if err != nil {
+		t.Fatalf("remove: %v\n%s", err, out)
+	}
+	if got := branchDeleteFlag(fake); got != "-d" {
+		t.Fatalf("branch delete flag = %q, want -d; calls: %+v", got, fake.Calls)
+	}
+	if !strings.Contains(out, "Deleted branch feature/x") {
+		t.Fatalf("expected branch cleanup after a picker removal, got:\n%s", out)
+	}
 }
 
 // branchDeleteFlag returns the flag git was asked to delete branch with ("-d"

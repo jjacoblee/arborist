@@ -8,10 +8,11 @@ import (
 
 	"github.com/jjacoblee/arborist/internal/git"
 	"github.com/jjacoblee/arborist/internal/github"
+	"github.com/jjacoblee/arborist/internal/picker"
 	"github.com/jjacoblee/arborist/internal/worktree"
 )
 
-// newRemoveCmd builds "arb remove <id-or-branch>".
+// newRemoveCmd builds "arb remove [id-or-branch]".
 func newRemoveCmd(d deps) *cobra.Command {
 	var (
 		dir          string
@@ -21,19 +22,22 @@ func newRemoveCmd(d deps) *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:     "remove <id-or-branch>",
+		Use:     "remove [id-or-branch]",
 		Aliases: []string{"rm"},
-		Short:   "Remove worktrees by id or branch",
+		Short:   "Remove worktrees by id or branch, or pick them from a list",
 		Long: `Remove worktrees, identified either by the short id shown in "arb list"
 (removes that one worktree) or by a branch name (removes every worktree on that
 branch across your repositories).
 
+With no argument, a searchable multi-select picker opens listing every worktree
+that is safe to remove; with --force it lists all of them, marking those with
+uncommitted changes or unpushed commits.
+
 Arborist shows exactly which worktrees and paths will be removed and asks for
 confirmation first. A worktree with uncommitted changes or untracked files is
 never removed unless you pass --force.`,
-		Args: cobra.ExactArgs(1),
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ref := args[0]
 			ctx := cmd.Context()
 			out := cmd.OutOrStdout()
 			g := git.New(d.runner)
@@ -49,6 +53,11 @@ never removed unless you pass --force.`,
 			if err != nil {
 				return err
 			}
+
+			if len(args) == 0 {
+				return removeFromPicker(cmd, d, svc, force, assumeYes, deleteBranch)
+			}
+			ref := args[0]
 
 			matches, err := svc.Find(ctx, ref)
 			if err != nil {
@@ -102,39 +111,7 @@ never removed unless you pass --force.`,
 					len(matches)-removable)
 			}
 
-			if !assumeYes {
-				ok, err := d.confirmer.Confirm(ctx, fmt.Sprintf("Remove %d worktree(s)?", removable))
-				if err != nil {
-					return err
-				}
-				if !ok {
-					fmt.Fprintln(out, "Aborted. Nothing was removed.")
-					return nil
-				}
-			}
-
-			// Show a progress bar on stderr while worktrees are removed (each
-			// removal also prunes its base repo, so this can take a moment). The
-			// bar is inert off a terminal, keeping the stdout summary clean.
-			svc.Progress = newStepsReporter(cmd.ErrOrStderr())
-			result := svc.Remove(ctx, matches, force)
-			result.Write(out)
-
-			// Removing the checkout leaves the branch ref behind; offer to take
-			// it too, so a stale branch can't be re-checked-out by the next
-			// "arb new".
-			branchFailed, err := cleanupBranches(cmd, d, svc, result.Removed, deleteBranch, force, assumeYes)
-			if err != nil {
-				return err
-			}
-
-			switch {
-			case result.HasFailures():
-				return fmt.Errorf("%d worktree(s) failed to remove", len(result.Failed))
-			case branchFailed > 0:
-				return fmt.Errorf("%d branch(es) failed to delete", branchFailed)
-			}
-			return nil
+			return executeRemoval(cmd, d, svc, matches, force, assumeYes, deleteBranch)
 		},
 	}
 
@@ -143,6 +120,139 @@ never removed unless you pass --force.`,
 	cmd.Flags().BoolVar(&deleteBranch, "delete-branch", false, "also delete the local branch when its last worktree is removed")
 	addDirFlag(cmd, &dir)
 	return cmd
+}
+
+// removeFromPicker runs the interactive flow for a bare "arb remove": it offers
+// the worktrees that may be removed, then removes whichever ones are chosen.
+//
+// Without force the picker only lists clean worktrees, so nothing risky is even
+// selectable; with force it lists everything, and the entries carry their own
+// dirty/unpushed markers so a risky choice is a deliberate one.
+func removeFromPicker(cmd *cobra.Command, d deps, svc worktree.Service,
+	force, assumeYes, deleteBranch bool) error {
+	ctx := cmd.Context()
+	out := cmd.OutOrStdout()
+
+	candidates, err := svc.RemovalCandidates(ctx)
+	if err != nil {
+		return err
+	}
+	if len(candidates) == 0 {
+		fmt.Fprintln(out, "No worktrees found.")
+		return nil
+	}
+
+	var (
+		choices []picker.WorktreeChoice
+		byID    = make(map[string]worktree.ManagedWorktree, len(candidates))
+	)
+	for _, c := range candidates {
+		if c.Worktree.Dirty && !force {
+			continue
+		}
+		choices = append(choices, picker.WorktreeChoice{
+			ID:       c.Worktree.ID,
+			Repo:     c.Worktree.Repo,
+			Branch:   c.Worktree.Branch,
+			Dirty:    c.Worktree.Dirty,
+			Unpushed: c.Unpushed,
+		})
+		byID[c.Worktree.ID] = c.Worktree
+	}
+	if len(choices) == 0 {
+		fmt.Fprintln(out, "No worktrees are safe to remove (all have uncommitted changes).")
+		fmt.Fprintln(out, "Rerun with --force to include them.")
+		return nil
+	}
+
+	selected, err := d.worktreeSelector.SelectWorktrees(ctx, choices)
+	if err != nil {
+		if errors.Is(err, picker.ErrCanceled) {
+			fmt.Fprintln(out, "Aborted. Nothing was removed.")
+			return nil
+		}
+		return err
+	}
+
+	targets := make([]worktree.ManagedWorktree, 0, len(selected))
+	for _, id := range selected {
+		if wt, ok := byID[id]; ok {
+			targets = append(targets, wt)
+		}
+	}
+	if len(targets) == 0 {
+		fmt.Fprintln(out, "Nothing selected. No worktrees were removed.")
+		return nil
+	}
+
+	// The picker is a selection, not an agreement to delete: show the paths and
+	// ask, exactly as the by-name flow does.
+	fmt.Fprintf(out, "\nSelected %d worktree(s):\n\n", len(targets))
+	for _, wt := range targets {
+		marker := ""
+		if wt.Dirty {
+			marker = "  [dirty]"
+		}
+		fmt.Fprintf(out, "  %s/%s%s\n    %s\n", wt.Owner, wt.Repo, marker, wt.Path)
+	}
+	fmt.Fprintln(out)
+
+	return executeRemoval(cmd, d, svc, targets, force, assumeYes, deleteBranch)
+}
+
+// executeRemoval confirms the removal of targets, carries it out, and then
+// offers to delete any branch the removal left with no worktree. It is the tail
+// shared by the by-name and picker-driven flows.
+func executeRemoval(cmd *cobra.Command, d deps, svc worktree.Service,
+	targets []worktree.ManagedWorktree, force, assumeYes, deleteBranch bool) error {
+	ctx := cmd.Context()
+	out := cmd.OutOrStdout()
+
+	if !assumeYes {
+		ok, err := d.confirmer.Confirm(ctx,
+			fmt.Sprintf("Remove %d worktree(s)?", countRemovable(targets, force)))
+		if err != nil {
+			return err
+		}
+		if !ok {
+			fmt.Fprintln(out, "Aborted. Nothing was removed.")
+			return nil
+		}
+	}
+
+	// Show a progress bar on stderr while worktrees are removed (each removal
+	// also prunes its base repo, so this can take a moment). The bar is inert
+	// off a terminal, keeping the stdout summary clean.
+	svc.Progress = newStepsReporter(cmd.ErrOrStderr())
+	result := svc.Remove(ctx, targets, force)
+	result.Write(out)
+
+	// Removing the checkout leaves the branch ref behind; offer to take it too,
+	// so a stale branch can't be re-checked-out by the next "arb new".
+	branchFailed, err := cleanupBranches(cmd, d, svc, result.Removed, deleteBranch, force, assumeYes)
+	if err != nil {
+		return err
+	}
+
+	switch {
+	case result.HasFailures():
+		return fmt.Errorf("%d worktree(s) failed to remove", len(result.Failed))
+	case branchFailed > 0:
+		return fmt.Errorf("%d branch(es) failed to delete", branchFailed)
+	}
+	return nil
+}
+
+// countRemovable reports how many targets will actually be removed; a dirty
+// worktree is only removable with force.
+func countRemovable(targets []worktree.ManagedWorktree, force bool) int {
+	n := 0
+	for _, wt := range targets {
+		if !wt.Dirty || force {
+			n++
+		}
+	}
+	return n
 }
 
 // cleanupBranches deletes the local branches whose last worktree the removal

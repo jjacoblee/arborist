@@ -27,6 +27,7 @@ type Git interface {
 	RemoteBranchExists(ctx context.Context, repoPath, branch string) bool
 	DeleteBranch(ctx context.Context, repoPath, branch string, force bool) error
 	LocalBranches(ctx context.Context, repoPath string) ([]string, error)
+	HasUnpushedCommits(ctx context.Context, path string) (bool, error)
 	AddWorktree(ctx context.Context, repoPath string, opts git.WorktreeAddOptions) error
 	ListWorktrees(ctx context.Context, repoPath string) ([]git.Worktree, error)
 	CurrentBranch(ctx context.Context, path string) (string, error)

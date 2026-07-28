@@ -106,7 +106,7 @@ prerequisites, installation, and your first `arb new` step by step.
 | `arb list` | List managed worktrees, each with a short **id**; paths are shown relative to the worktree root (use `--full` for absolute). |
 | `arb open <id-or-branch>` | Open a worktree in your editor (`--cursor`, `--code`, `--editor <cmd>`, or your configured default), or print its path with `--print`. |
 | `arb setup <id-or-branch>` | Run this workspace's configured setup commands in a worktree (e.g. `pnpm install`, `uv sync`). Runs automatically after `arb new`. |
-| `arb remove <id-or-branch>` | Safely remove a single worktree by its short id, or every worktree on a branch (with confirmation; `--yes` to skip it, `--force` for dirty worktrees). When a removal leaves a branch with no worktrees, Arborist offers to delete the local branch too — or pass `--delete-branch` to opt in up front. Alias: `arb rm`. |
+| `arb remove [id-or-branch]` | Safely remove a single worktree by its short id, or every worktree on a branch (with confirmation; `--yes` to skip it, `--force` for dirty worktrees). With **no argument** a searchable multi-select picker opens listing the worktrees that are safe to remove — with `--force` it lists all of them, marking `[dirty]` and `[unpushed]` ones. When a removal leaves a branch with no worktrees, Arborist offers to delete the local branch too — or pass `--delete-branch` to opt in up front. Alias: `arb rm`. |
 | `arb prune` | Clean up stale worktree references, then list any local branch left with no worktree and offer to delete it (`--delete-branches` to skip the prompt, `--yes` to report only). |
 | `arb repo list` | List the workspace owner's GitHub repositories (via `gh`). |
 | `arb config` | View and edit the workspace configuration (`list`/`get`/`set`/`path`). |
@@ -222,9 +222,11 @@ Implemented today:
   (`--full` for absolute).
 - `arb open <id-or-branch>`: open a worktree in your editor (`--cursor`,
   `--code`, `--editor`, or a configured default) or print its path (`--print`).
-- `arb remove <id-or-branch>`: remove one worktree by id or all on a branch,
+- `arb remove [id-or-branch]`: remove one worktree by id or all on a branch,
   with confirmation; never deletes a dirty worktree without `--force`. Offers to
   delete the local branch once its last worktree is gone (`--delete-branch`).
+  With no argument, a searchable multi-select picker offers the worktrees that
+  are safe to remove for bulk cleanup.
 - `arb prune`: clear stale worktree references and clean up branches left with
   no worktree (`--delete-branches`).
 - `arb repo list` and `arb config` (`get`/`set`/`path`).

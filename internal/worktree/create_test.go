@@ -23,6 +23,7 @@ type fakeGit struct {
 	RemoteExistsFn  func(repoPath, branch string) bool
 	DeleteBranchFn  func(repoPath, branch string, force bool) error
 	LocalBranchesFn func(repoPath string) ([]string, error)
+	HasUnpushedFn   func(path string) (bool, error)
 	AddWorktreeFn   func(repoPath string, opts git.WorktreeAddOptions) error
 	ListFn          func(repoPath string) ([]git.Worktree, error)
 	CurrentBranchFn func(path string) (string, error)
@@ -71,6 +72,12 @@ func (f *fakeGit) RemoteBranchExists(_ context.Context, repoPath, branch string)
 		return f.RemoteExistsFn(repoPath, branch)
 	}
 	return false
+}
+func (f *fakeGit) HasUnpushedCommits(_ context.Context, path string) (bool, error) {
+	if f.HasUnpushedFn != nil {
+		return f.HasUnpushedFn(path)
+	}
+	return false, nil
 }
 func (f *fakeGit) LocalBranches(_ context.Context, repoPath string) ([]string, error) {
 	if f.LocalBranchesFn != nil {
