@@ -17,14 +17,20 @@ import (
 // newListCmd builds "arb list", which shows the worktrees Arborist manages.
 func newListCmd(d deps) *cobra.Command {
 	var (
-		dir  string
-		full bool
+		dir   string
+		full  bool
+		group string
 	)
 
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List the worktrees Arborist manages",
-		Args:  cobra.NoArgs,
+		Long: `List the worktrees Arborist manages, each with a short id usable with
+"arb open" and "arb remove".
+
+A GROUP column appears once any worktree lives in a group; --group narrows the
+listing to one of them.`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 			g := git.New(d.runner)
@@ -46,11 +52,16 @@ func newListCmd(d deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if cmd.Flags().Changed("group") {
+				worktrees = filterByGroup(worktrees, group)
+			}
 			printWorktrees(cmd.OutOrStdout(), worktrees, svc.WorktreeRoot, full)
 			return nil
 		},
 	}
 
+	cmd.Flags().StringVar(&group, "group", "",
+		`only show worktrees in this group (pass --group "" for the ungrouped ones)`)
 	cmd.Flags().BoolVar(&full, "full", false, "show absolute worktree paths instead of paths relative to the worktree root")
 	addDirFlag(cmd, &dir)
 	return cmd
@@ -71,8 +82,16 @@ func printWorktrees(w io.Writer, worktrees []worktree.ManagedWorktree, worktreeR
 	}
 	shortIDs := worktree.ShortenIDs(ids)
 
+	// The GROUP column earns its width only once something is grouped, so a
+	// workspace that never uses groups sees the table it always saw.
+	grouped := anyGrouped(worktrees)
+
 	tw := tabwriter.NewWriter(w, 0, 2, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tREPOSITORY\tBRANCH\tSTATUS\tPATH")
+	if grouped {
+		fmt.Fprintln(tw, "ID\tREPOSITORY\tGROUP\tBRANCH\tSTATUS\tPATH")
+	} else {
+		fmt.Fprintln(tw, "ID\tREPOSITORY\tBRANCH\tSTATUS\tPATH")
+	}
 	for i, wt := range worktrees {
 		repo := wt.Repo
 		if wt.Owner != "" {
@@ -86,9 +105,39 @@ func printWorktrees(w io.Writer, worktrees []worktree.ManagedWorktree, worktreeR
 		if wt.Dirty {
 			status = "dirty"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", shortIDs[i], repo, branch, status, displayPath(wt.Path, worktreeRoot, full))
+		path := displayPath(wt.Path, worktreeRoot, full)
+		if grouped {
+			group := wt.Group
+			if group == "" {
+				group = "-"
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", shortIDs[i], repo, group, branch, status, path)
+			continue
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", shortIDs[i], repo, branch, status, path)
 	}
 	tw.Flush()
+}
+
+func anyGrouped(worktrees []worktree.ManagedWorktree) bool {
+	for _, wt := range worktrees {
+		if wt.Group != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// filterByGroup keeps only the worktrees in group; an empty group selects the
+// ungrouped ones, which is what --group "" asks for.
+func filterByGroup(worktrees []worktree.ManagedWorktree, group string) []worktree.ManagedWorktree {
+	var kept []worktree.ManagedWorktree
+	for _, wt := range worktrees {
+		if wt.Group == group {
+			kept = append(kept, wt)
+		}
+	}
+	return kept
 }
 
 // displayPath returns the worktree path relative to worktreeRoot, or the

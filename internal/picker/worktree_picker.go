@@ -19,6 +19,8 @@ type WorktreeChoice struct {
 	ID     string
 	Repo   string
 	Branch string
+	// Group is the group folder the worktree sits in, or "" when ungrouped.
+	Group string
 	// Dirty marks uncommitted changes or untracked files.
 	Dirty bool
 	// Unpushed marks commits that exist on no origin ref.
@@ -62,10 +64,15 @@ func (HuhWorktrees) SelectWorktrees(ctx context.Context, choices []WorktreeChoic
 // The repository column is padded so branches line up, and any risky state is
 // spelled out at the end of the line where it reads as a warning.
 func buildWorktreeOptions(choices []WorktreeChoice) []huh.Option[string] {
-	width := 0
+	// A group column is only worth its width once something is grouped, which
+	// mirrors how "arb list" decides.
+	var repoWidth, groupWidth int
 	for _, c := range choices {
-		if len(c.Repo) > width {
-			width = len(c.Repo)
+		if len(c.Repo) > repoWidth {
+			repoWidth = len(c.Repo)
+		}
+		if len(c.Group) > groupWidth {
+			groupWidth = len(c.Group)
 		}
 	}
 
@@ -75,7 +82,14 @@ func buildWorktreeOptions(choices []WorktreeChoice) []huh.Option[string] {
 		if branch == "" {
 			branch = "detached"
 		}
-		label := fmt.Sprintf("%-*s  %s", width, c.Repo, branch)
+		label := fmt.Sprintf("%-*s  %s", repoWidth, c.Repo, branch)
+		if groupWidth > 0 {
+			group := c.Group
+			if group == "" {
+				group = "-"
+			}
+			label = fmt.Sprintf("%-*s  %-*s  %s", groupWidth, group, repoWidth, c.Repo, branch)
+		}
 		if markers := stateMarkers(c); markers != "" {
 			label += "  " + markers
 		}

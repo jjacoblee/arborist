@@ -18,8 +18,10 @@ func newNewCmd(d deps) *cobra.Command {
 		dir       string
 		name      string
 		base      string
+		group     string
 		limit     int
 		noSetup   bool
+		assumeYes bool
 		repoFlags []string
 	)
 
@@ -107,6 +109,17 @@ another feature branch); it applies only when the branch is newly created.`,
 			}
 			svc.Base = base
 
+			svc.Group, err = resolveGroup(cmd, d, svc, ws.Config, group, assumeYes)
+			if err != nil {
+				if errors.Is(err, errGroupDeclined) {
+					return nil // already reported; not a failure
+				}
+				return err
+			}
+			if svc.Group != "" {
+				fmt.Fprintf(out, "Group: %s\n\n", svc.Group)
+			}
+
 			// Show a progress bar on stderr while repositories are cloned and
 			// worktrees created, so the slow steps don't look like a hang. It
 			// draws only on a terminal and is a no-op otherwise, which keeps
@@ -133,6 +146,10 @@ another feature branch); it applies only when the branch is newly created.`,
 		},
 	}
 
+	cmd.Flags().StringVar(&group, "group", "",
+		`group folder to create the worktrees under, e.g. --group review (pass --group "" to opt out of a configured defaultGroup)`)
+	cmd.Flags().BoolVar(&assumeYes, "yes", false,
+		"skip confirmation prompts (for example when using a group name for the first time)")
 	cmd.Flags().StringSliceVar(&repoFlags, "repo", nil,
 		"repositories to use instead of opening the picker; repeatable, and accepts comma- or space-separated names (e.g. --repo api,web)")
 	cmd.Flags().IntVar(&limit, "limit", github.DefaultRepoLimit, "maximum number of repositories to fetch")

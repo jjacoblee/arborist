@@ -20,6 +20,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/jjacoblee/arborist/internal/paths"
 )
 
 // Config is the user-editable per-owner workspace configuration, serialized as
@@ -56,6 +58,15 @@ type Config struct {
 	// Optional; when empty `arb open` falls back to the $EDITOR environment
 	// variable.
 	Editor string `json:"editor,omitempty"`
+	// Groups names the worktree groups this workspace expects. It is purely
+	// advisory: groups are created on demand, and this list only tells Arborist
+	// which names are deliberate, so `arb new --group` can query an unfamiliar
+	// one instead of silently creating a folder for a typo.
+	Groups []string `json:"groups,omitempty"`
+	// DefaultGroup is the group `arb new` uses when --group is not given.
+	// Optional; when empty, new worktrees keep the original ungrouped layout.
+	// Pass --group "" to place a worktree outside the default group.
+	DefaultGroup string `json:"defaultGroup,omitempty"`
 	// Setup maps a repository name to the shell commands run in each newly
 	// created worktree for that repo (for example "pnpm install", "uv sync").
 	// The key "*" applies to any repo without an exact entry. These commands run
@@ -73,7 +84,32 @@ func (c Config) Validate() error {
 	if strings.ContainsAny(c.Owner, " \t/") {
 		return fmt.Errorf("owner %q must be a single GitHub user or organization name (no spaces or '/')", c.Owner)
 	}
+	if c.DefaultGroup != "" {
+		if _, err := paths.SanitizeGroupName(c.DefaultGroup); err != nil {
+			return fmt.Errorf("defaultGroup: %w", err)
+		}
+	}
+	for _, g := range c.Groups {
+		if _, err := paths.SanitizeGroupName(g); err != nil {
+			return fmt.Errorf("groups: %w", err)
+		}
+	}
 	return nil
+}
+
+// KnownGroup reports whether name is one of the groups this workspace declares.
+// Comparison is on the sanitized form, since that is what becomes a directory.
+func (c Config) KnownGroup(name string) bool {
+	clean, err := paths.SanitizeGroupName(name)
+	if err != nil {
+		return false
+	}
+	for _, g := range c.Groups {
+		if sanitized, err := paths.SanitizeGroupName(g); err == nil && sanitized == clean {
+			return true
+		}
+	}
+	return false
 }
 
 // SetupCommands returns the setup commands configured for repo: its exact entry

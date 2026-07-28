@@ -21,6 +21,73 @@ func mkWorktree(t *testing.T, dir string) {
 	}
 }
 
+// groupListFixture sets up a workspace with an ungrouped worktree and one in
+// the "review" group.
+func groupListFixture(t *testing.T) (dir string, fake *exectest.Fake) {
+	t.Helper()
+	dir = writeWorkspace(t, "acme")
+	baseRepo := filepath.Join(dir, "web")
+	plain := filepath.Join(workspaceWorktreeRoot(dir), "web", "feature-x")
+	grouped := filepath.Join(workspaceWorktreeRoot(dir), "review", "web", "pr-1234")
+	mkWorktree(t, plain)
+	mkWorktree(t, grouped)
+
+	fake = &exectest.Fake{Responses: map[string]exectest.Result{}}
+	for path, branch := range map[string]string{plain: "feature/x", grouped: "pr/1234"} {
+		fake.Responses[exectest.Key("git", "-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir")] = exectest.Result{Out: []byte(baseRepo + "/.git\n")}
+		fake.Responses[exectest.Key("git", "-C", path, "branch", "--show-current")] = exectest.Result{Out: []byte(branch + "\n")}
+		fake.Responses[exectest.Key("git", "-C", path, "status", "--porcelain")] = exectest.Result{}
+	}
+	return dir, fake
+}
+
+func TestList_ShowsGroupColumnOnlyWhenGroupsAreUsed(t *testing.T) {
+	dir, fake := groupListFixture(t)
+
+	out, err := runRootWithRunner(t, fake, "list", "--dir", dir)
+	if err != nil {
+		t.Fatalf("list: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "GROUP") || !strings.Contains(out, "review") {
+		t.Fatalf("expected a GROUP column naming review, got:\n%s", out)
+	}
+}
+
+func TestList_OmitsGroupColumnWithoutGroups(t *testing.T) {
+	dir := writeWorkspace(t, "acme")
+	wtPath := filepath.Join(workspaceWorktreeRoot(dir), "web", "feature-x")
+	mkWorktree(t, wtPath)
+	baseRepo := filepath.Join(dir, "web")
+	fake := &exectest.Fake{Responses: map[string]exectest.Result{
+		exectest.Key("git", "-C", wtPath, "rev-parse", "--path-format=absolute", "--git-common-dir"): {Out: []byte(baseRepo + "/.git\n")},
+		exectest.Key("git", "-C", wtPath, "branch", "--show-current"):                                {Out: []byte("feature/x\n")},
+		exectest.Key("git", "-C", wtPath, "status", "--porcelain"):                                   {},
+	}}
+
+	out, err := runRootWithRunner(t, fake, "list", "--dir", dir)
+	if err != nil {
+		t.Fatalf("list: %v\n%s", err, out)
+	}
+	if strings.Contains(out, "GROUP") {
+		t.Fatalf("a workspace with no groups should not grow a column for them:\n%s", out)
+	}
+}
+
+func TestList_GroupFilter(t *testing.T) {
+	dir, fake := groupListFixture(t)
+
+	out, err := runRootWithRunner(t, fake, "list", "--dir", dir, "--group", "review")
+	if err != nil {
+		t.Fatalf("list --group: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "pr/1234") {
+		t.Fatalf("expected the grouped worktree, got:\n%s", out)
+	}
+	if strings.Contains(out, "feature/x") {
+		t.Fatalf("ungrouped worktrees must be filtered out, got:\n%s", out)
+	}
+}
+
 func TestList_PrintsWorktrees(t *testing.T) {
 	dir := writeWorkspace(t, "acme")
 	wtPath := filepath.Join(workspaceWorktreeRoot(dir), "web", "feature-x")

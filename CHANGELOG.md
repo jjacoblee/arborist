@@ -6,7 +6,35 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Worktree groups.** `arb new <branch> --group review` nests worktrees under a
+  named folder inside the worktree root, laid out as
+  `<worktreeRoot>/<group>/<repo>/<branch>`. The group comes first so everything
+  in it is a single directory to inspect or delete — the point being bulk
+  cleanup by intent: throw away everything in `review` without looking at any of
+  it. Worktrees created without a group keep their existing path, so nothing
+  moves.
+
+  Groups are free-form and created on demand, so the first use of an unfamiliar
+  name is confirmed (listing the groups that already exist) rather than silently
+  creating a folder for a typo. Declaring a name in the new `groups` config
+  field, or passing the new `arb new --yes`, skips that question. The new
+  `defaultGroup` config field sets the group used when `--group` is absent;
+  `--group ""` places a worktree outside it.
+
+  `arb list` grows a GROUP column once anything is grouped — and only then, so a
+  workspace that doesn't use groups sees the table it always saw. Both
+  `arb list` and `arb remove` take `--group <name>` to narrow to one group, with
+  `--group ""` selecting the ungrouped worktrees.
+
 ### Fixed
+
+- **Removing a worktree now cleans up the folders it emptied.** git removes the
+  checkout but leaves the `<repo>` (and, for a grouped worktree, `<group>`)
+  directories above it, so a fully cleaned-out group still looked like it held
+  something. Emptied parents are now removed up to — never including — the
+  worktree root, and a directory still holding work is never touched.
 
 - **`arb new` no longer branches off a stale default branch.** It fetched before
   choosing a branch source, but then created new branches from the *local*

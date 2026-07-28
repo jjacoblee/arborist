@@ -3,9 +3,11 @@ package cli
 import (
 	"bytes"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/jjacoblee/arborist/internal/config"
 	"github.com/jjacoblee/arborist/internal/exectest"
 	"github.com/jjacoblee/arborist/internal/github"
 	"github.com/jjacoblee/arborist/internal/paths"
@@ -37,6 +39,182 @@ func ghOK(repoJSON string) map[string]exectest.Result {
 
 const twoRepoJSON = `[{"name":"web","nameWithOwner":"acme/web","isPrivate":false},
 {"name":"api","nameWithOwner":"acme/api","isPrivate":false}]`
+
+// runNewWith runs a command with a confirmer wired in, for flows that ask.
+func runNewWith(t *testing.T, runner *exectest.Fake, sel *pickertest.Fake,
+	conf *pickertest.FakeConfirmer, args ...string) (string, error) {
+	t.Helper()
+	cmd := newRootCmd("dev", deps{runner: runner, selector: sel, confirmer: conf})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs(args)
+	err := cmd.Execute()
+	return out.String(), err
+}
+
+// worktreeAddPath returns the path git was asked to create a worktree at,
+// covering both shapes Arborist emits: `worktree add <path> <branch>` when the
+// branch already exists, and `worktree add -b <branch> <path> [base]` when it
+// creates one.
+func worktreeAddPath(runner *exectest.Fake) string {
+	for _, c := range runner.Calls {
+		if c.Name != "git" || len(c.Args) < 5 || c.Args[2] != "worktree" || c.Args[3] != "add" {
+			continue
+		}
+		if c.Args[4] == "-b" {
+			if len(c.Args) >= 7 {
+				return c.Args[6]
+			}
+			continue
+		}
+		return c.Args[4]
+	}
+	return ""
+}
+
+func TestNew_GroupNestsWorktreeUnderGroupFolder(t *testing.T) {
+	dir := writeWorkspace(t, "acme")
+	runner := &exectest.Fake{Responses: ghOK(twoRepoJSON)}
+	conf := &pickertest.FakeConfirmer{Result: true} // agrees to the new group
+
+	out, err := runNewWith(t, runner, &pickertest.Fake{}, conf,
+		"new", "pr/1234", "--dir", dir, "--repo", "api", "--group", "review")
+	if err != nil {
+		t.Fatalf("new --group: %v\n%s", err, out)
+	}
+	want := filepath.Join(workspaceWorktreeRoot(dir), "review", "api", "pr-1234")
+	if got := worktreeAddPath(runner); got != want {
+		t.Fatalf("worktree path = %q, want %q", got, want)
+	}
+}
+
+// writeGroupWorkspace writes a workspace whose config declares groups and a
+// default group.
+func writeGroupWorkspace(t *testing.T, groups []string, defaultGroup string) string {
+	t.Helper()
+	dir := t.TempDir()
+	cfg := config.Config{Owner: "acme", Groups: groups, DefaultGroup: defaultGroup}
+	if err := config.Save(config.ConfigPath(dir), cfg); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func TestNew_NewGroupIsConfirmedFirst(t *testing.T) {
+	dir := writeWorkspace(t, "acme")
+	runner := &exectest.Fake{Responses: ghOK(twoRepoJSON)}
+	conf := &pickertest.FakeConfirmer{Result: false} // declines the new group
+
+	out, err := runNewWith(t, runner, &pickertest.Fake{}, conf,
+		"new", "pr/1234", "--dir", dir, "--repo", "api", "--group", "reveiw")
+	if err != nil {
+		t.Fatalf("declining a group is not a failure: %v\n%s", err, out)
+	}
+	if conf.Calls != 1 {
+		t.Fatalf("expected one prompt for the unfamiliar group, got %q", conf.Prompts)
+	}
+	if worktreeAddPath(runner) != "" {
+		t.Fatalf("nothing may be created when the group is declined; got %+v", runner.Calls)
+	}
+}
+
+func TestNew_ExistingGroupIsNotQueried(t *testing.T) {
+	dir := writeWorkspace(t, "acme")
+	// A worktree already lives in "review", so the group is clearly deliberate.
+	mkWorktree(t, filepath.Join(workspaceWorktreeRoot(dir), "review", "web", "pr-1"))
+	runner := &exectest.Fake{Responses: ghOK(twoRepoJSON)}
+	conf := &pickertest.FakeConfirmer{Result: true}
+
+	out, err := runNewWith(t, runner, &pickertest.Fake{}, conf,
+		"new", "pr/1234", "--dir", dir, "--repo", "api", "--group", "review")
+	if err != nil {
+		t.Fatalf("new --group: %v\n%s", err, out)
+	}
+	if conf.Calls != 0 {
+		t.Fatalf("a group already in use must not be queried, got %q", conf.Prompts)
+	}
+}
+
+func TestNew_DeclaredGroupIsNotQueried(t *testing.T) {
+	dir := writeGroupWorkspace(t, []string{"review"}, "")
+	runner := &exectest.Fake{Responses: ghOK(twoRepoJSON)}
+	conf := &pickertest.FakeConfirmer{Result: true}
+
+	out, err := runNewWith(t, runner, &pickertest.Fake{}, conf,
+		"new", "pr/1234", "--dir", dir, "--repo", "api", "--group", "review")
+	if err != nil {
+		t.Fatalf("new --group: %v\n%s", err, out)
+	}
+	if conf.Calls != 0 {
+		t.Fatalf("a declared group must not be queried, got %q", conf.Prompts)
+	}
+}
+
+func TestNew_YesSkipsTheGroupPrompt(t *testing.T) {
+	dir := writeWorkspace(t, "acme")
+	runner := &exectest.Fake{Responses: ghOK(twoRepoJSON)}
+	conf := &pickertest.FakeConfirmer{}
+
+	out, err := runNewWith(t, runner, &pickertest.Fake{}, conf,
+		"new", "pr/1234", "--dir", dir, "--repo", "api", "--group", "review", "--yes")
+	if err != nil {
+		t.Fatalf("new --group --yes: %v\n%s", err, out)
+	}
+	if conf.Calls != 0 {
+		t.Fatalf("--yes must keep the run unattended, got %q", conf.Prompts)
+	}
+	want := filepath.Join(workspaceWorktreeRoot(dir), "review", "api", "pr-1234")
+	if got := worktreeAddPath(runner); got != want {
+		t.Fatalf("worktree path = %q, want %q", got, want)
+	}
+}
+
+func TestNew_DefaultGroupAppliesWithoutTheFlag(t *testing.T) {
+	dir := writeGroupWorkspace(t, []string{"review"}, "review")
+	runner := &exectest.Fake{Responses: ghOK(twoRepoJSON)}
+	conf := &pickertest.FakeConfirmer{}
+
+	out, err := runNewWith(t, runner, &pickertest.Fake{}, conf,
+		"new", "pr/1234", "--dir", dir, "--repo", "api")
+	if err != nil {
+		t.Fatalf("new: %v\n%s", err, out)
+	}
+	want := filepath.Join(workspaceWorktreeRoot(dir), "review", "api", "pr-1234")
+	if got := worktreeAddPath(runner); got != want {
+		t.Fatalf("worktree path = %q, want %q", got, want)
+	}
+}
+
+func TestNew_EmptyGroupFlagOptsOutOfDefaultGroup(t *testing.T) {
+	dir := writeGroupWorkspace(t, []string{"review"}, "review")
+	runner := &exectest.Fake{Responses: ghOK(twoRepoJSON)}
+	conf := &pickertest.FakeConfirmer{}
+
+	out, err := runNewWith(t, runner, &pickertest.Fake{}, conf,
+		"new", "pr/1234", "--dir", dir, "--repo", "api", "--group", "")
+	if err != nil {
+		t.Fatalf("new --group \"\": %v\n%s", err, out)
+	}
+	want := filepath.Join(workspaceWorktreeRoot(dir), "api", "pr-1234")
+	if got := worktreeAddPath(runner); got != want {
+		t.Fatalf("worktree path = %q, want %q (ungrouped)", got, want)
+	}
+}
+
+func TestNew_UnusableGroupNameIsRejected(t *testing.T) {
+	dir := writeWorkspace(t, "acme")
+	runner := &exectest.Fake{Responses: ghOK(twoRepoJSON)}
+
+	_, err := runNewWith(t, runner, &pickertest.Fake{}, &pickertest.FakeConfirmer{},
+		"new", "pr/1234", "--dir", dir, "--repo", "api", "--group", "..")
+	if !errors.Is(err, paths.ErrInvalidGroupName) {
+		t.Fatalf("err = %v, want ErrInvalidGroupName", err)
+	}
+	if worktreeAddPath(runner) != "" {
+		t.Fatalf("nothing may be created for an unusable group; got %+v", runner.Calls)
+	}
+}
 
 func TestNew_RepoFlagSkipsPicker(t *testing.T) {
 	runner := &exectest.Fake{Responses: ghOK(twoRepoJSON)}

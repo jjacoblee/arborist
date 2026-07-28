@@ -197,6 +197,26 @@ func TestCreate_NewBranchFromDefault_ClonesMissingRepo(t *testing.T) {
 	}
 }
 
+func TestCreate_GroupNestsTheWorktree(t *testing.T) {
+	g := &fakeGit{RemoteExistsFn: func(_, branch string) bool { return branch == "main" }}
+	c := &fakeCloner{}
+	s := newService(t, g, c)
+	s.Group = "review"
+
+	res := s.Create(context.Background(), "pr/1234", "", []github.Repository{testRepo()})
+
+	if len(res.Created) != 1 {
+		t.Fatalf("unexpected result: %+v", res)
+	}
+	want := filepath.Join(s.WorktreeRoot, "review", "web", "pr-1234")
+	if res.Created[0].Path != want {
+		t.Fatalf("path = %q, want %q", res.Created[0].Path, want)
+	}
+	if res.Created[0].Group != "review" {
+		t.Fatalf("group = %q, want review", res.Created[0].Group)
+	}
+}
+
 func TestCreate_NewBranchUsesLocalDefaultWhenNotOnRemote(t *testing.T) {
 	// A repository whose default branch exists only locally (no origin ref yet)
 	// still has to be usable as a base.

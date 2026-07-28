@@ -59,6 +59,8 @@ root is `<workspace>/worktrees`; override it with `--worktree-root`.
 | `copyEnvFiles` | bool | `false` | When `true`, copy top-level `.env` / `.env.*` files from a repo's base clone into each new worktree. |
 | `copyFiles` | array | `[]` | Extra repo-relative files to copy from the base clone into each new worktree, for files `copyEnvFiles` misses (e.g. `["secrets.env"]`). Confined to the repo; copies are `0600`. |
 | `editor` | string | `$EDITOR` | Command `arb open` uses by default, e.g. `cursor` or `code --wait`. Optional; falls back to the `$EDITOR` environment variable. |
+| `groups` | array | `[]` | Group names this workspace expects, e.g. `["review", "spike"]`. Advisory only: groups are created on demand, and listing one here just tells Arborist the name is deliberate so `arb new --group` doesn't query it. |
+| `defaultGroup` | string | — | Group `arb new` uses when `--group` is not passed. Optional; when unset, new worktrees keep the ungrouped layout. Pass `--group ""` to place one outside the default. |
 | `setup` | object | `{}` | Per-repo shell commands run in each new worktree (e.g. `{"admin": ["pnpm install"], "*": ["uv sync"]}`). Key `*` is the fallback. Run via a shell from this trusted config only. |
 
 The repository root is **not** stored — it is implicitly the directory that
@@ -116,11 +118,39 @@ for `feature/my-change` produces:
 ~/work/acme/worktrees/admin/feature-my-change
 ```
 
+### Groups
+
+A group is a named folder inside the worktree root that separates work by
+intent — long-lived feature work in one place, disposable review checkouts in
+another — so a whole category can be cleaned up without inspecting any of it.
+Pass `--group` to `arb new`, and the worktree nests one level deeper:
+
+```text
+~/work/acme/worktrees/admin/feature-my-change      # ungrouped
+~/work/acme/worktrees/review/admin/pr-1234         # --group review
+```
+
+The group comes first so everything in it is a single directory to inspect or
+delete. Worktrees created without a group keep their original path, so nothing
+moves when you start using groups.
+
+Groups are created on demand, so nothing stops a typo becoming a near-duplicate
+folder. The first use of an unfamiliar name is therefore confirmed, listing the
+groups that already exist; naming it in `groups` (or passing `--yes`) skips that
+question. Group names go through the same sanitization as branch names, so
+`--group "code review"` becomes the folder `code-review`.
+
+`arb list` grows a GROUP column once anything is grouped, and both `arb list`
+and `arb remove` take `--group <name>` to narrow to one (`--group ""` selects
+the ungrouped worktrees). When a removal empties a group's folder, the folder
+goes with it.
+
 ## Validation
 
 Arborist validates the config when it loads and when `arb config set` writes it:
 
 - `owner` must be present and a single account login (no spaces or `/`).
+- `defaultGroup` and every entry in `groups` must be usable as a folder name.
 
 If validation fails, Arborist reports which field is wrong rather than guessing.
 

@@ -72,6 +72,11 @@ type Service struct {
 	// instead of the repository's default branch. It applies only when the
 	// target branch does not already exist locally or remotely.
 	Base string
+	// Group, when non-empty, nests new worktrees under a named folder inside
+	// the worktree root, so related work can be inspected and cleaned up
+	// together. It must already be sanitized (see paths.SanitizeGroupName).
+	// An empty Group keeps the original flat layout.
+	Group string
 	// Progress, when set, receives progress updates as Create, Remove, and Prune
 	// work through their items, so a caller can render an indicator. It is
 	// optional; a nil Progress disables reporting.
@@ -105,7 +110,7 @@ func (s Service) createOne(ctx context.Context, branch, name string, repo github
 		dirName = name
 	}
 	repoPath := paths.RepoPath(s.WorkspaceRoot, repo.Name)
-	worktreePath := paths.WorktreePath(s.WorktreeRoot, repo.Name, dirName)
+	worktreePath := paths.WorktreePath(s.WorktreeRoot, s.Group, repo.Name, dirName)
 
 	r := s.report()
 	fail := func(err error) {
@@ -218,6 +223,7 @@ func (s Service) createOne(ctx context.Context, branch, name string, repo github
 		Repository: repo,
 		Branch:     branch,
 		Path:       worktreePath,
+		Group:      s.Group,
 		Source:     source,
 	}
 	if s.CopyEnvFiles {

@@ -35,6 +35,26 @@ func TestBuildWorktreeOptions_MarksState(t *testing.T) {
 	}
 }
 
+func TestBuildWorktreeOptions_ShowsGroupsOnlyWhenUsed(t *testing.T) {
+	plain := labelsFor([]WorktreeChoice{
+		{ID: "a", Repo: "web", Branch: "feature/x"},
+	})
+	if strings.Contains(plain[0], "-  ") {
+		t.Fatalf("label %q should carry no group column when nothing is grouped", plain[0])
+	}
+
+	mixed := labelsFor([]WorktreeChoice{
+		{ID: "a", Repo: "web", Branch: "pr/1234", Group: "review"},
+		{ID: "b", Repo: "web", Branch: "feature/x"},
+	})
+	if !strings.HasPrefix(mixed[0], "review") {
+		t.Fatalf("label %q should lead with its group", mixed[0])
+	}
+	if !strings.HasPrefix(mixed[1], "-") {
+		t.Fatalf("label %q should mark the ungrouped worktree", mixed[1])
+	}
+}
+
 func TestBuildWorktreeOptions_KeysAreWorktreeIDs(t *testing.T) {
 	options := buildWorktreeOptions([]WorktreeChoice{
 		{ID: "abc123", Repo: "web", Branch: "feature/x"},

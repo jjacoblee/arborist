@@ -16,6 +16,7 @@ import (
 func newRemoveCmd(d deps) *cobra.Command {
 	var (
 		dir          string
+		group        string
 		force        bool
 		assumeYes    bool
 		deleteBranch bool
@@ -55,7 +56,8 @@ never removed unless you pass --force.`,
 			}
 
 			if len(args) == 0 {
-				return removeFromPicker(cmd, d, svc, force, assumeYes, deleteBranch)
+				scope := groupScope{name: group, set: cmd.Flags().Changed("group")}
+				return removeFromPicker(cmd, d, svc, scope, force, assumeYes, deleteBranch)
 			}
 			ref := args[0]
 
@@ -118,8 +120,35 @@ never removed unless you pass --force.`,
 	cmd.Flags().BoolVar(&force, "force", false, "remove worktrees even if they have uncommitted changes, and delete branches with unmerged commits")
 	cmd.Flags().BoolVar(&assumeYes, "yes", false, "skip the confirmation prompt")
 	cmd.Flags().BoolVar(&deleteBranch, "delete-branch", false, "also delete the local branch when its last worktree is removed")
+	cmd.Flags().StringVar(&group, "group", "",
+		`with no argument, only offer worktrees in this group (pass --group "" for the ungrouped ones)`)
 	addDirFlag(cmd, &dir)
 	return cmd
+}
+
+// groupScope is a --group value together with whether it was actually passed,
+// since an empty group is a real selection (the ungrouped worktrees) and not
+// the same as leaving the flag off.
+type groupScope struct {
+	name string
+	set  bool
+}
+
+// includes reports whether a worktree falls inside the scope.
+func (s groupScope) includes(wt worktree.ManagedWorktree) bool {
+	return !s.set || wt.Group == s.name
+}
+
+// label describes the scope for a message, e.g. `in group "review"`.
+func (s groupScope) label() string {
+	switch {
+	case !s.set:
+		return ""
+	case s.name == "":
+		return " outside any group"
+	default:
+		return fmt.Sprintf(" in group %q", s.name)
+	}
 }
 
 // removeFromPicker runs the interactive flow for a bare "arb remove": it offers
@@ -128,17 +157,23 @@ never removed unless you pass --force.`,
 // Without force the picker only lists clean worktrees, so nothing risky is even
 // selectable; with force it lists everything, and the entries carry their own
 // dirty/unpushed markers so a risky choice is a deliberate one.
-func removeFromPicker(cmd *cobra.Command, d deps, svc worktree.Service,
+func removeFromPicker(cmd *cobra.Command, d deps, svc worktree.Service, scope groupScope,
 	force, assumeYes, deleteBranch bool) error {
 	ctx := cmd.Context()
 	out := cmd.OutOrStdout()
 
-	candidates, err := svc.RemovalCandidates(ctx)
+	all, err := svc.RemovalCandidates(ctx)
 	if err != nil {
 		return err
 	}
+	var candidates []worktree.RemovalCandidate
+	for _, c := range all {
+		if scope.includes(c.Worktree) {
+			candidates = append(candidates, c)
+		}
+	}
 	if len(candidates) == 0 {
-		fmt.Fprintln(out, "No worktrees found.")
+		fmt.Fprintf(out, "No worktrees found%s.\n", scope.label())
 		return nil
 	}
 
@@ -154,13 +189,14 @@ func removeFromPicker(cmd *cobra.Command, d deps, svc worktree.Service,
 			ID:       c.Worktree.ID,
 			Repo:     c.Worktree.Repo,
 			Branch:   c.Worktree.Branch,
+			Group:    c.Worktree.Group,
 			Dirty:    c.Worktree.Dirty,
 			Unpushed: c.Unpushed,
 		})
 		byID[c.Worktree.ID] = c.Worktree
 	}
 	if len(choices) == 0 {
-		fmt.Fprintln(out, "No worktrees are safe to remove (all have uncommitted changes).")
+		fmt.Fprintf(out, "No worktrees%s are safe to remove (all have uncommitted changes).\n", scope.label())
 		fmt.Fprintln(out, "Rerun with --force to include them.")
 		return nil
 	}

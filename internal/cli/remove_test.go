@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -110,6 +111,93 @@ func removedPaths(fake *exectest.Fake) []string {
 		}
 	}
 	return paths
+}
+
+// groupPickerFixture sets up a clean ungrouped worktree and a clean one in the
+// "review" group.
+func groupPickerFixture(t *testing.T) (dir string, fake *exectest.Fake) {
+	t.Helper()
+	dir = writeWorkspace(t, "acme")
+	baseRepo := filepath.Join(dir, "web")
+	plain := filepath.Join(workspaceWorktreeRoot(dir), "web", "feature-x")
+	grouped := filepath.Join(workspaceWorktreeRoot(dir), "review", "web", "pr-1234")
+	mkWorktree(t, plain)
+	mkWorktree(t, grouped)
+
+	fake = &exectest.Fake{Responses: map[string]exectest.Result{}}
+	for path, branch := range map[string]string{plain: "feature/x", grouped: "pr/1234"} {
+		fake.Responses[exectest.Key("git", "-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir")] = exectest.Result{Out: []byte(baseRepo + "/.git\n")}
+		fake.Responses[exectest.Key("git", "-C", path, "branch", "--show-current")] = exectest.Result{Out: []byte(branch + "\n")}
+		fake.Responses[exectest.Key("git", "-C", path, "status", "--porcelain")] = exectest.Result{}
+	}
+	return dir, fake
+}
+
+func TestRemove_GroupScopesThePicker(t *testing.T) {
+	dir, fake := groupPickerFixture(t)
+	sel := &pickertest.FakeWorktreeSelector{}
+
+	out, err := runRemoveWith(t, fake, &pickertest.FakeConfirmer{}, sel,
+		"remove", "--dir", dir, "--group", "review")
+	if err != nil {
+		t.Fatalf("remove --group: %v\n%s", err, out)
+	}
+	if len(sel.GotChoices) != 1 {
+		t.Fatalf("picker was offered %+v, want only the review group", sel.GotChoices)
+	}
+	if sel.GotChoices[0].Branch != "pr/1234" {
+		t.Fatalf("offered %+v, want the grouped worktree", sel.GotChoices[0])
+	}
+}
+
+func TestRemove_EmptyGroupScopesToUngrouped(t *testing.T) {
+	dir, fake := groupPickerFixture(t)
+	sel := &pickertest.FakeWorktreeSelector{}
+
+	out, err := runRemoveWith(t, fake, &pickertest.FakeConfirmer{}, sel,
+		"remove", "--dir", dir, "--group", "")
+	if err != nil {
+		t.Fatalf("remove --group \"\": %v\n%s", err, out)
+	}
+	if len(sel.GotChoices) != 1 || sel.GotChoices[0].Branch != "feature/x" {
+		t.Fatalf("picker was offered %+v, want only the ungrouped worktree", sel.GotChoices)
+	}
+}
+
+func TestRemove_UnusedGroupOffersNothing(t *testing.T) {
+	dir, fake := groupPickerFixture(t)
+	sel := &pickertest.FakeWorktreeSelector{}
+
+	out, err := runRemoveWith(t, fake, &pickertest.FakeConfirmer{}, sel,
+		"remove", "--dir", dir, "--group", "nope")
+	if err != nil {
+		t.Fatalf("remove --group nope: %v\n%s", err, out)
+	}
+	if sel.Calls != 0 {
+		t.Fatal("the picker should not open for a group holding nothing")
+	}
+	if !strings.Contains(out, "nope") {
+		t.Fatalf("expected the empty group to be named, got:\n%s", out)
+	}
+}
+
+func TestRemove_PickerLabelsGroups(t *testing.T) {
+	dir, fake := groupPickerFixture(t)
+	sel := &pickertest.FakeWorktreeSelector{}
+
+	if _, err := runRemoveWith(t, fake, &pickertest.FakeConfirmer{}, sel, "remove", "--dir", dir); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	var groups []string
+	for _, c := range sel.GotChoices {
+		groups = append(groups, c.Group)
+	}
+	if len(sel.GotChoices) != 2 {
+		t.Fatalf("expected both worktrees, got %+v", sel.GotChoices)
+	}
+	if !slices.Contains(groups, "review") || !slices.Contains(groups, "") {
+		t.Fatalf("choices should carry their group, got %q", groups)
+	}
 }
 
 func TestRemove_NoArgsOpensPicker(t *testing.T) {
