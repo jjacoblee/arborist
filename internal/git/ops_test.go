@@ -117,6 +117,65 @@ func TestBranchExists(t *testing.T) {
 	}
 }
 
+func TestDeleteBranch(t *testing.T) {
+	safe := &exectest.Fake{}
+	if err := New(safe).DeleteBranch(context.Background(), "/repo", "feature/x", false); err != nil {
+		t.Fatalf("DeleteBranch: %v", err)
+	}
+	want := []string{"-C", "/repo", "branch", "-d", "feature/x"}
+	if got := lastArgs(safe); !reflect.DeepEqual(got, want) {
+		t.Fatalf("args = %v, want %v", got, want)
+	}
+
+	forced := &exectest.Fake{}
+	if err := New(forced).DeleteBranch(context.Background(), "/repo", "feature/x", true); err != nil {
+		t.Fatalf("DeleteBranch(force): %v", err)
+	}
+	wantForce := []string{"-C", "/repo", "branch", "-D", "feature/x"}
+	if got := lastArgs(forced); !reflect.DeepEqual(got, wantForce) {
+		t.Fatalf("args = %v, want %v", got, wantForce)
+	}
+}
+
+func TestDeleteBranch_NotMerged(t *testing.T) {
+	// git refuses `branch -d` for a branch whose commits aren't reachable from
+	// its upstream, reporting it on stderr; the Runner folds stderr into the
+	// error. That refusal must be distinguishable from a real failure.
+	f := &exectest.Fake{Default: exectest.Result{
+		Err: errors.New("run git: exit status 1: error: the branch 'feature/x' is not fully merged"),
+	}}
+	err := New(f).DeleteBranch(context.Background(), "/repo", "feature/x", false)
+	if !errors.Is(err, ErrBranchNotMerged) {
+		t.Fatalf("err = %v, want ErrBranchNotMerged", err)
+	}
+
+	other := &exectest.Fake{Default: exectest.Result{
+		Err: errors.New("run git: exit status 128: fatal: not a git repository"),
+	}}
+	err = New(other).DeleteBranch(context.Background(), "/repo", "feature/x", false)
+	if err == nil || errors.Is(err, ErrBranchNotMerged) {
+		t.Fatalf("err = %v, want a plain failure", err)
+	}
+}
+
+func TestLocalBranches(t *testing.T) {
+	f := &exectest.Fake{
+		Responses: map[string]exectest.Result{
+			exectest.Key("git", "-C", "/repo", "for-each-ref", "--format=%(refname:short)", "refs/heads"): {
+				Out: []byte("main\nfeature/x\nrelease/1.2\n\n"),
+			},
+		},
+	}
+	got, err := New(f).LocalBranches(context.Background(), "/repo")
+	if err != nil {
+		t.Fatalf("LocalBranches: %v", err)
+	}
+	want := []string{"main", "feature/x", "release/1.2"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("branches = %v, want %v", got, want)
+	}
+}
+
 func TestAddWorktree_ExistingBranch(t *testing.T) {
 	f := &exectest.Fake{}
 	err := New(f).AddWorktree(context.Background(), "/repo", WorktreeAddOptions{

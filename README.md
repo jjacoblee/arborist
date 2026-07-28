@@ -106,8 +106,8 @@ prerequisites, installation, and your first `arb new` step by step.
 | `arb list` | List managed worktrees, each with a short **id**; paths are shown relative to the worktree root (use `--full` for absolute). |
 | `arb open <id-or-branch>` | Open a worktree in your editor (`--cursor`, `--code`, `--editor <cmd>`, or your configured default), or print its path with `--print`. |
 | `arb setup <id-or-branch>` | Run this workspace's configured setup commands in a worktree (e.g. `pnpm install`, `uv sync`). Runs automatically after `arb new`. |
-| `arb remove <id-or-branch>` | Safely remove a single worktree by its short id, or every worktree on a branch (with confirmation; `--yes` to skip it, `--force` for dirty worktrees). Alias: `arb rm`. |
-| `arb prune` | Clean up stale worktree references. |
+| `arb remove <id-or-branch>` | Safely remove a single worktree by its short id, or every worktree on a branch (with confirmation; `--yes` to skip it, `--force` for dirty worktrees). When a removal leaves a branch with no worktrees, Arborist offers to delete the local branch too — or pass `--delete-branch` to opt in up front. Alias: `arb rm`. |
+| `arb prune` | Clean up stale worktree references, then list any local branch left with no worktree and offer to delete it (`--delete-branches` to skip the prompt, `--yes` to report only). |
 | `arb repo list` | List the workspace owner's GitHub repositories (via `gh`). |
 | `arb config` | View and edit the workspace configuration (`list`/`get`/`set`/`path`). |
 
@@ -195,6 +195,8 @@ conservative by default:
 - Destructive actions require explicit confirmation and print the exact paths
   that will be removed.
 - A dirty worktree is never removed silently.
+- A branch holding unmerged commits is never deleted without `--force`, and a
+  repository's default branch is never offered for deletion at all.
 - `--force` is only used when you explicitly pass a force flag.
 - Filesystem changes stay inside the configured Arborist directories.
 - GitHub tokens are never stored or logged; authentication is delegated to the
@@ -221,8 +223,11 @@ Implemented today:
 - `arb open <id-or-branch>`: open a worktree in your editor (`--cursor`,
   `--code`, `--editor`, or a configured default) or print its path (`--print`).
 - `arb remove <id-or-branch>`: remove one worktree by id or all on a branch,
-  with confirmation; never deletes a dirty worktree without `--force`.
-- `arb prune`, `arb repo list`, and `arb config` (`get`/`set`/`path`).
+  with confirmation; never deletes a dirty worktree without `--force`. Offers to
+  delete the local branch once its last worktree is gone (`--delete-branch`).
+- `arb prune`: clear stale worktree references and clean up branches left with
+  no worktree (`--delete-branches`).
+- `arb repo list` and `arb config` (`get`/`set`/`path`).
 - Actionable prerequisite checks (git / `gh` install + auth), all behind a
   mockable command runner with table-driven tests.
 - Release packaging: a GoReleaser pipeline publishing no-Go binaries, checksums,

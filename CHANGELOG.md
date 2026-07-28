@@ -6,6 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Local branch cleanup.** Removing a worktree used to leave its branch ref
+  behind, so re-adding the worktree checked out the same stale branch again.
+  `arb remove` now notices when a removal takes a branch's last worktree and
+  offers to delete the local branch too; `--delete-branch` opts in without the
+  prompt. `arb prune` likewise lists every local branch left with no worktree and
+  offers to delete them (`--delete-branches` to skip the prompt, `--yes` to
+  report only).
+
+  Deletion uses `git branch -d`, so a branch holding commits git can't see
+  anywhere else is reported as skipped rather than deleted — `--force` (`-D`)
+  deletes it deliberately. A repository's default branch is never a candidate,
+  even when nothing has it checked out.
+
 ## [0.1.0] - 2026-07-07
 
 First public release. Arborist is a guided CLI for managing Git worktrees across
