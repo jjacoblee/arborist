@@ -139,8 +139,26 @@ func (s Service) removeOne(ctx context.Context, r Reporter, wt ManagedWorktree, 
 	}
 	// Best-effort cleanup of stale admin entries.
 	_ = s.Git.PruneWorktrees(ctx, wt.RepoPath)
+	s.pruneEmptyParents(wt.Path)
 	r.Log("removed worktree " + name)
 	res.Removed = append(res.Removed, wt)
+}
+
+// pruneEmptyParents removes the directories a worktree left behind, walking up
+// from its path while each parent is empty and stopping at the worktree root.
+//
+// git removes the checkout but not the <repo> (and, for a grouped worktree,
+// <group>) folders above it, so without this a cleaned-out group would still
+// look like it holds something. os.Remove refuses a non-empty directory, which
+// is exactly the guard needed: a folder still holding work is never touched.
+func (s Service) pruneEmptyParents(worktreePath string) {
+	dir := filepath.Dir(worktreePath)
+	for dir != s.WorktreeRoot && isWithin(s.WorktreeRoot, dir) {
+		if err := os.Remove(dir); err != nil {
+			return // not empty, or not ours to remove
+		}
+		dir = filepath.Dir(dir)
+	}
 }
 
 // Prune runs `git worktree prune` on every base repository under the repo root,

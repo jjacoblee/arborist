@@ -20,6 +20,37 @@ func mkWorktreeDir(t *testing.T, dir string) {
 	}
 }
 
+func TestList_ReportsGroupFromLayout(t *testing.T) {
+	wtRoot := t.TempDir()
+	ungrouped := filepath.Join(wtRoot, "web", "feature-x")
+	grouped := filepath.Join(wtRoot, "review", "web", "pr-1234")
+	mkWorktreeDir(t, ungrouped)
+	mkWorktreeDir(t, grouped)
+
+	g := &fakeGit{
+		MainRepoPathFn:  func(string) (string, error) { return "/clones/web", nil },
+		CurrentBranchFn: func(p string) (string, error) { return filepath.Base(p), nil },
+	}
+	s := Service{Git: g, Owner: "acme", WorktreeRoot: wtRoot}
+
+	got, err := s.List(context.Background())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d worktrees, want 2: %+v", len(got), got)
+	}
+	for _, wt := range got {
+		want := ""
+		if wt.Path == grouped {
+			want = "review"
+		}
+		if wt.Group != want {
+			t.Fatalf("%s group = %q, want %q", wt.Path, wt.Group, want)
+		}
+	}
+}
+
 func TestList_ScansWorktreeRoots(t *testing.T) {
 	wtRoot := t.TempDir()
 

@@ -6,6 +6,81 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Worktree groups.** `arb new <branch> --group review` nests worktrees under a
+  named folder inside the worktree root, laid out as
+  `<worktreeRoot>/<group>/<repo>/<branch>`. The group comes first so everything
+  in it is a single directory to inspect or delete — the point being bulk
+  cleanup by intent: throw away everything in `review` without looking at any of
+  it. Worktrees created without a group keep their existing path, so nothing
+  moves.
+
+  Groups are free-form and created on demand, so the first use of an unfamiliar
+  name is confirmed (listing the groups that already exist) rather than silently
+  creating a folder for a typo. Declaring a name in the new `groups` config
+  field, or passing the new `arb new --yes`, skips that question. The new
+  `defaultGroup` config field sets the group used when `--group` is absent;
+  `--group ""` places a worktree outside it.
+
+  `arb list` grows a GROUP column once anything is grouped — and only then, so a
+  workspace that doesn't use groups sees the table it always saw. Both
+  `arb list` and `arb remove` take `--group <name>` to narrow to one group, with
+  `--group ""` selecting the ungrouped worktrees.
+
+### Fixed
+
+- **Removing a worktree now cleans up the folders it emptied.** git removes the
+  checkout but leaves the `<repo>` (and, for a grouped worktree, `<group>`)
+  directories above it, so a fully cleaned-out group still looked like it held
+  something. Emptied parents are now removed up to — never including — the
+  worktree root, and a directory still holding work is never touched.
+
+- **`arb new` no longer branches off a stale default branch.** It fetched before
+  choosing a branch source, but then created new branches from the *local*
+  default branch — and `git fetch` updates `origin/main`, never local `main`. A
+  workspace whose base clone hadn't been pulled by hand therefore started every
+  new branch from whatever tip it was last left at. New branches now come from
+  `origin/<default>`, falling back to the local branch for a repository whose
+  default isn't on origin yet. `--base <ref>` is unchanged: a ref you name
+  explicitly still resolves to your local copy when you have one.
+
+### Added
+
+- **`arb new --repo`.** Name the repositories up front and skip the picker
+  entirely, so `arb new` works from a script and repeat workflows stop
+  re-selecting the same set: `arb new my-branch --repo api,web`. The flag is
+  repeatable and also accepts space-separated names, so `--repo api --repo web`,
+  `--repo api,web`, and `--repo "api web"` are equivalent. Names may be bare
+  (`api`) or owner-qualified (`acme/api`), and match case-insensitively. A name
+  that matches no repository fails the command before anything is created,
+  reporting every unknown name at once.
+
+- **Interactive bulk removal.** `arb remove` with no argument now opens a
+  searchable multi-select picker of the worktrees that are safe to remove, so
+  cleaning up a backlog no longer means one `arb remove <branch>` at a time.
+  `arb remove <id-or-branch>` is unchanged.
+
+  By default the picker lists only clean worktrees, so nothing risky is even
+  selectable. `--force` lists every worktree instead, marking each with
+  `[dirty]` (uncommitted changes or untracked files) and `[unpushed]` (commits
+  that exist on no origin ref). The selection is then summarized with full paths
+  and confirmed before anything is deleted, and any branch the removal orphans
+  goes through the same deletion offer as above.
+
+- **Local branch cleanup.** Removing a worktree used to leave its branch ref
+  behind, so re-adding the worktree checked out the same stale branch again.
+  `arb remove` now notices when a removal takes a branch's last worktree and
+  offers to delete the local branch too; `--delete-branch` opts in without the
+  prompt. `arb prune` likewise lists every local branch left with no worktree and
+  offers to delete them (`--delete-branches` to skip the prompt, `--yes` to
+  report only).
+
+  Deletion uses `git branch -d`, so a branch holding commits git can't see
+  anywhere else is reported as skipped rather than deleted — `--force` (`-D`)
+  deletes it deliberately. A repository's default branch is never a candidate,
+  even when nothing has it checked out.
+
 ## [0.1.0] - 2026-07-07
 
 First public release. Arborist is a guided CLI for managing Git worktrees across

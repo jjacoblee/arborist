@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/jjacoblee/arborist/internal/paths"
 )
 
 // ManagedWorktree describes one Arborist-managed worktree found under the
@@ -15,6 +17,7 @@ type ManagedWorktree struct {
 	Owner    string // GitHub owner (the workspace owner; may be empty)
 	Repo     string // repository name
 	Branch   string // checked-out branch ("" if detached)
+	Group    string // group folder the worktree sits in ("" if ungrouped)
 	Path     string // absolute worktree path
 	RepoPath string // base (main) repository path, used for removal/prune
 	Dirty    bool   // has uncommitted changes or untracked files
@@ -57,6 +60,7 @@ func (s Service) List(ctx context.Context) ([]ManagedWorktree, error) {
 			Owner:    s.Owner,
 			Repo:     filepath.Base(repoPath),
 			Branch:   branch,
+			Group:    paths.GroupFor(s.WorktreeRoot, path),
 			Path:     path,
 			RepoPath: repoPath,
 			Dirty:    dirty,

@@ -22,9 +22,11 @@ const (
 
 // CreatedWorktree records a successfully created worktree.
 type CreatedWorktree struct {
-	Repository  github.Repository
-	Branch      string
-	Path        string
+	Repository github.Repository
+	Branch     string
+	Path       string
+	// Group is the folder the worktree was created under, or "" when ungrouped.
+	Group       string
 	Source      BranchSource
 	CopiedEnv   []string // env files copied into the worktree (if any)
 	CopiedFiles []string // additional configured files copied (if any)

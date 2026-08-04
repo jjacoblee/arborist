@@ -13,6 +13,9 @@ type deps struct {
 	runner exec.Runner
 	// selector presents the interactive repository picker.
 	selector picker.Selector
+	// worktreeSelector presents the interactive worktree picker used by
+	// "arb remove" with no arguments.
+	worktreeSelector picker.WorktreeSelector
 	// confirmer asks yes/no questions (e.g. before removing worktrees).
 	confirmer picker.Confirmer
 	// launcher starts an editor for "arb open", wired to the terminal.
@@ -26,10 +29,11 @@ type deps struct {
 // the OS shell for setup commands.
 func defaultDeps() deps {
 	return deps{
-		runner:    exec.OS{},
-		selector:  picker.Huh{},
-		confirmer: picker.HuhConfirmer{},
-		launcher:  exec.OSLauncher{},
-		shell:     exec.OSShell{},
+		runner:           exec.OS{},
+		selector:         picker.Huh{},
+		worktreeSelector: picker.HuhWorktrees{},
+		confirmer:        picker.HuhConfirmer{},
+		launcher:         exec.OSLauncher{},
+		shell:            exec.OSShell{},
 	}
 }
