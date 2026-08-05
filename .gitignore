@@ -28,6 +28,11 @@ Icon?
 .vscode/
 *.swp
 
+# Personal local files (per-user config and scratch backlog notes).
+/.arborist.json
+/TODO.md
+/TODO2.md
+
 # Local brand/design working files (source iterations and exports).
 /Images/
 /design/

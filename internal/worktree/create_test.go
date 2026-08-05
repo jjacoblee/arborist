@@ -195,6 +195,11 @@ func TestCreate_NewBranchFromDefault_ClonesMissingRepo(t *testing.T) {
 	if len(g.Added) != 1 || !g.Added[0].CreateNew || g.Added[0].BaseRef != "origin/main" {
 		t.Fatalf("AddWorktree opts = %+v, want CreateNew from origin/main", g.Added)
 	}
+	// Starting at origin/main must not make main the upstream: the branch would
+	// then push to main and report itself behind it.
+	if g.Added[0].Track {
+		t.Fatalf("opts = %+v, want no tracking of the default branch", g.Added[0])
+	}
 }
 
 func TestCreate_GroupNestsTheWorktree(t *testing.T) {
@@ -289,6 +294,9 @@ func TestCreate_BaseOverride_RemoteBase(t *testing.T) {
 	if g.Added[0].BaseRef != "origin/feature-y" {
 		t.Fatalf("BaseRef = %q, want origin/feature-y", g.Added[0].BaseRef)
 	}
+	if g.Added[0].Track {
+		t.Fatalf("opts = %+v, want no tracking of the base branch", g.Added[0])
+	}
 }
 
 func TestCreate_RemoteTrackingBranch(t *testing.T) {
@@ -303,6 +311,10 @@ func TestCreate_RemoteTrackingBranch(t *testing.T) {
 	}
 	if !g.Added[0].CreateNew || g.Added[0].BaseRef != "origin/feature/x" {
 		t.Fatalf("opts = %+v, want tracking from origin/feature/x", g.Added[0])
+	}
+	// The branch is already on origin, so origin/<branch> is its real upstream.
+	if !g.Added[0].Track {
+		t.Fatalf("opts = %+v, want tracking of origin/feature/x", g.Added[0])
 	}
 }
 

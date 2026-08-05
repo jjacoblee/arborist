@@ -30,6 +30,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **New branches no longer adopt the default branch as their upstream.** Basing
+  a new branch on `origin/<default>` (see the stale-default fix below) meant it
+  started at a *remote-tracking* ref, and git's `branch.autoSetupMerge` default
+  records an upstream whenever a branch starts there. Every new branch therefore
+  came out tracking `origin/main`: `git push` targeted main, and `git status`
+  reported the work as behind it. `arb new` now states the intent — it tracks
+  the base ref only when that ref is the branch's own counterpart on origin, and
+  passes `--no-track` otherwise, so the result no longer depends on each user's
+  `branch.autoSetupMerge` setting. A branch that isn't on origin yet is left
+  with no upstream, which the first `git push -u` sets correctly.
+
+  Worktrees created before this fix keep the wrong upstream. Run
+  `git branch --unset-upstream` inside each one to clear it.
+
 - **Removing a worktree now cleans up the folders it emptied.** git removes the
   checkout but leaves the `<repo>` (and, for a grouped worktree, `<group>`)
   directories above it, so a fully cleaned-out group still looked like it held

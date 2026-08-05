@@ -181,8 +181,11 @@ func (s Service) createOne(ctx context.Context, branch, name string, repo github
 	case s.Git.LocalBranchExists(ctx, repoPath, branch):
 		// Use the existing local branch as-is.
 	case s.Git.RemoteBranchExists(ctx, repoPath, branch):
+		// The branch already exists on origin, so origin/<branch> is its real
+		// upstream. This is the one case where tracking the base ref is right.
 		opts.CreateNew = true
 		opts.BaseRef = "origin/" + branch
+		opts.Track = true
 		source = SourceRemoteTracking
 	default:
 		opts.CreateNew = true
@@ -199,7 +202,9 @@ func (s Service) createOne(ctx context.Context, branch, name string, repo github
 			// origin/<default> but left the local branch wherever it was last
 			// pulled, so branching from the local ref would silently start the
 			// work from a stale tip. Fall back to the local branch for a
-			// repository whose default isn't on origin yet.
+			// repository whose default isn't on origin yet. Track stays false:
+			// the new branch starts at the default branch but must not adopt it
+			// as its upstream.
 			opts.BaseRef = base
 			if s.Git.RemoteBranchExists(ctx, repoPath, base) {
 				opts.BaseRef = "origin/" + base

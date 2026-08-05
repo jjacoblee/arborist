@@ -27,6 +27,15 @@ type WorktreeAddOptions struct {
 	// default branch like "main" or a remote ref like "origin/feature/x"). It is
 	// only used when CreateNew is set, and may be empty to branch from HEAD.
 	BaseRef string
+	// Track records BaseRef as the new branch's upstream. Set it only when
+	// BaseRef is the branch's own counterpart on the remote.
+	//
+	// Arborist always states this intent because git's branch.autoSetupMerge
+	// default sets an upstream for any branch started at a remote-tracking ref.
+	// That default is wrong for new work branched from origin/<default>: the
+	// branch would push to, and report itself behind, the default branch. It is
+	// only used when CreateNew is set together with a BaseRef.
+	Track bool
 }
 
 // AddWorktree creates a worktree in the repository at repoPath.
@@ -37,6 +46,13 @@ type WorktreeAddOptions struct {
 func (c Client) AddWorktree(ctx context.Context, repoPath string, opts WorktreeAddOptions) error {
 	args := []string{"-C", repoPath, "worktree", "add"}
 	if opts.CreateNew {
+		if opts.BaseRef != "" {
+			if opts.Track {
+				args = append(args, "--track")
+			} else {
+				args = append(args, "--no-track")
+			}
+		}
 		args = append(args, "-b", opts.Branch, opts.Path)
 		if opts.BaseRef != "" {
 			args = append(args, opts.BaseRef)

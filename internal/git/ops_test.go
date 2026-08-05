@@ -231,7 +231,26 @@ func TestAddWorktree_NewBranchWithBase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AddWorktree: %v", err)
 	}
-	want := []string{"-C", "/repo", "worktree", "add", "-b", "feature/x", "/wt/feature", "main"}
+	want := []string{"-C", "/repo", "worktree", "add", "--no-track", "-b", "feature/x", "/wt/feature", "main"}
+	if got := lastArgs(f); !reflect.DeepEqual(got, want) {
+		t.Fatalf("args = %v, want %v", got, want)
+	}
+}
+
+// A branch that already exists on origin adopts it as the upstream.
+func TestAddWorktree_NewBranchTracksBase(t *testing.T) {
+	f := &exectest.Fake{}
+	err := New(f).AddWorktree(context.Background(), "/repo", WorktreeAddOptions{
+		Path:      "/wt/feature",
+		Branch:    "feature/x",
+		CreateNew: true,
+		BaseRef:   "origin/feature/x",
+		Track:     true,
+	})
+	if err != nil {
+		t.Fatalf("AddWorktree: %v", err)
+	}
+	want := []string{"-C", "/repo", "worktree", "add", "--track", "-b", "feature/x", "/wt/feature", "origin/feature/x"}
 	if got := lastArgs(f); !reflect.DeepEqual(got, want) {
 		t.Fatalf("args = %v, want %v", got, want)
 	}
