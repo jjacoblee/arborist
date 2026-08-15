@@ -13,7 +13,7 @@ import (
 )
 
 // configKeys are the editable keys exposed by "arb config get/set".
-const configKeys = "owner, worktreeRoot, copyEnvFiles, editor"
+const configKeys = "owner, worktreeRoot, copyEnvFiles, editor, defaultGroup"
 
 // newConfigCmd builds the "arb config" command group for viewing and editing
 // the current workspace's .arborist.json without hand-editing the hidden file.
@@ -142,6 +142,16 @@ func printConfig(w io.Writer, ws config.Workspace) {
 		fmt.Fprintf(w, "copyFiles:     %s\n", strings.Join(ws.Config.CopyFiles, ", "))
 	}
 	fmt.Fprintf(w, "editor:        %s\n", ws.Config.Editor)
+	if len(ws.Config.Groups) > 0 {
+		fmt.Fprintf(w, "groups:        %s\n", strings.Join(ws.Config.Groups, ", "))
+	} else {
+		fmt.Fprintf(w, "groups:        (none)\n")
+	}
+	if ws.Config.DefaultGroup != "" {
+		fmt.Fprintf(w, "defaultGroup:  %s\n", ws.Config.DefaultGroup)
+	} else {
+		fmt.Fprintf(w, "defaultGroup:  (none)\n")
+	}
 
 	if len(ws.Config.Setup) == 0 {
 		fmt.Fprintf(w, "setup:         (none)\n")
@@ -176,6 +186,8 @@ func configValue(ws config.Workspace, key string) (string, error) {
 		return strconv.FormatBool(ws.Config.CopyEnvFiles), nil
 	case "editor":
 		return ws.Config.Editor, nil
+	case "defaultGroup":
+		return ws.Config.DefaultGroup, nil
 	default:
 		return "", fmt.Errorf("unknown config key %q (valid: %s)", key, configKeys)
 	}
@@ -198,6 +210,10 @@ func setConfigValue(cfg config.Config, key, value string) (config.Config, error)
 		cfg.CopyEnvFiles = b
 	case "editor":
 		cfg.Editor = value
+	case "defaultGroup":
+		// Stored raw; an empty value clears the default so new worktrees stay
+		// ungrouped. Save re-validates the name.
+		cfg.DefaultGroup = value
 	default:
 		return config.Config{}, fmt.Errorf("unknown config key %q (valid: %s)", key, configKeys)
 	}
