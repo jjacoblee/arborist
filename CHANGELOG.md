@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-15
+
+Quality-of-life release: name repositories up front, group worktrees for
+cleanup by intent, remove worktrees in bulk, and delete leftover local
+branches.
+
 ### Added
 
 - **Worktree groups.** `arb new <branch> --group review` nests worktrees under a
@@ -26,7 +32,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `arb list` grows a GROUP column once anything is grouped — and only then, so a
   workspace that doesn't use groups sees the table it always saw. Both
   `arb list` and `arb remove` take `--group <name>` to narrow to one group, with
-  `--group ""` selecting the ungrouped worktrees.
+  `--group ""` selecting the ungrouped worktrees. `arb config` prints `groups`
+  and `defaultGroup`; `get`/`set` cover `defaultGroup` (an empty value clears
+  it). `groups` is still edited in the file.
 
 ### Fixed
 
@@ -159,5 +167,6 @@ multiple repositories, built around per-owner workspaces.
 - The install script verifies the downloaded archive's checksum against its
   exact filename in `checksums.txt`.
 
-[Unreleased]: https://github.com/jjacoblee/arborist/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/jjacoblee/arborist/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/jjacoblee/arborist/releases/tag/v0.2.0
 [0.1.0]: https://github.com/jjacoblee/arborist/releases/tag/v0.1.0

@@ -90,8 +90,13 @@ mkdir -p ~/work/acme && cd ~/work/acme # a folder for one GitHub owner
 arb init --owner acme                  # set up the workspace (.arborist.json)
 
 arb new feature/example-change         # pick repos and create worktrees
+arb new feature/example-change --repo api,web   # or name the repos and skip the picker
+arb new pr/1234 --group review --repo api       # nest a disposable checkout in a group
+
 arb list                               # see your worktrees
-arb remove feature/example-change
+arb list --group review                # only one group
+arb remove                             # pick worktrees to remove
+arb remove feature/example-change      # or remove every worktree on that branch
 ```
 
 New here? The **[Getting Started guide](docs/getting-started.md)** walks through
@@ -116,6 +121,50 @@ walking up from the current directory.
 
 `arb worktree add/list/remove` will exist later as explicit aliases, but
 `arb new` is the primary, documented workflow.
+
+### Name repositories and skip the picker
+
+`arb new` opens a searchable picker by default. Pass `--repo` to name the
+repositories up front and go straight to clone-if-missing plus worktree
+creation. Useful in a script, and for a workflow that always uses the same set:
+
+```bash
+arb new my-branch --repo api,web
+arb new my-branch --repo api --repo web
+arb new my-branch --repo "api web"
+```
+
+Names may be bare (`api`) or owner-qualified (`acme/api`). They match
+case-insensitively. If any name matches no repository, the command fails before
+it creates a worktree, and it reports every unknown name at once.
+
+### Group worktrees by intent
+
+`--group` nests worktrees one level deeper so related work lives in one folder
+you can inspect or delete together:
+
+```bash
+arb new pr/1234 --group review --repo api
+# folder: <worktreeRoot>/review/api/pr-1234
+```
+
+Worktrees created without a group keep the original
+`<worktreeRoot>/<repo>/<branch>` path. `arb list` shows a GROUP column once
+anything is grouped. `arb list --group review` and `arb remove --group review`
+narrow to that group; `--group ""` selects the ungrouped worktrees. See
+[Groups](docs/config.md#groups) for `groups`, `defaultGroup`, and first-use
+confirmation.
+
+### Clean up leftover branches
+
+When `arb remove` takes a branch's last worktree, Arborist offers to delete the
+local branch too. Pass `--delete-branch` to opt in without the prompt.
+`arb prune` lists every local branch left with no worktree and offers the same
+cleanup (`--delete-branches` to skip the prompt, `--yes` to report only).
+
+Deletion uses `git branch -d`, so a branch with commits git cannot see
+elsewhere is skipped. `--force` maps to `-D`. A repository's default branch is
+never a candidate.
 
 ## Configuration
 
@@ -149,6 +198,12 @@ want to use (it won't overwrite an existing config unless you pass `--force`):
   `["secrets.env"]`). Paths can't escape the repo; copies are written `0600`.
 - **editor** (optional) — the command `arb open` uses by default, e.g. `cursor`
   or `code --wait`. Falls back to `$EDITOR` when unset.
+- **groups** (optional) — group names this workspace expects, e.g.
+  `["review", "spike"]`. Advisory only: listing a name here skips the first-use
+  confirm on `arb new --group`.
+- **defaultGroup** (optional) — group `arb new` uses when `--group` is not
+  passed. When unset, new worktrees stay ungrouped. Pass `--group ""` to place
+  one worktree outside the default.
 - **setup** (optional) — per-repo shell commands run in each new worktree, e.g.
   `{"setup": {"admin": ["pnpm install"], "*": ["pnpm install"]}}`. The key `*`
   applies to any repo without an exact entry. These run through a shell, so they
@@ -163,10 +218,10 @@ arb config set copyEnvFiles true # change a value
 arb config path                  # print the config file location
 ```
 
-`arb config get`/`set` covers `owner`, `worktreeRoot`, `copyEnvFiles`, and
-`editor`. The structured fields (`copyFiles`, `setup`) are edited in the file
-itself — open it with `$EDITOR "$(arb config path)"` and keep its permissions
-at `0600` (see [Trust](docs/config.md#trust)).
+`arb config get`/`set` covers `owner`, `worktreeRoot`, `copyEnvFiles`,
+`editor`, and `defaultGroup`. Edit `copyFiles`, `setup`, and `groups` in the
+file itself — open it with `$EDITOR "$(arb config path)"` and keep its
+permissions at `0600` (see [Trust](docs/config.md#trust)).
 
 ### Layout
 
@@ -178,7 +233,10 @@ A workspace is laid out as:
   api/
   worktrees/                 # worktree root (default)
     admin/
-      feature-x/             # a worktree   <worktreeRoot>/<repo>/<branch>
+      feature-x/             # ungrouped    <worktreeRoot>/<repo>/<branch>
+    review/
+      admin/
+        pr-1234/             # grouped      <worktreeRoot>/<group>/<repo>/<branch>
 ```
 
 To work across several owners, create one workspace folder per owner and `cd`
@@ -218,16 +276,18 @@ Implemented today:
 - `arb new <branch>`: the flagship workflow — searchable multi-select repo
   picker, clone-if-missing, fetch, default-branch detection, safe branch-source
   selection, and a created/skipped/failed summary. `--name` for short folders,
-  `--repo` to name repositories up front and skip the picker.
+  `--repo` to name repositories up front and skip the picker, `--group` to nest
+  worktrees under a named folder for cleanup by intent.
 - `arb list`: managed worktrees with a short, stable **id** and relative paths
-  (`--full` for absolute).
+  (`--full` for absolute). A GROUP column appears once anything is grouped;
+  `--group` narrows to one.
 - `arb open <id-or-branch>`: open a worktree in your editor (`--cursor`,
   `--code`, `--editor`, or a configured default) or print its path (`--print`).
 - `arb remove [id-or-branch]`: remove one worktree by id or all on a branch,
   with confirmation; never deletes a dirty worktree without `--force`. Offers to
   delete the local branch once its last worktree is gone (`--delete-branch`).
   With no argument, a searchable multi-select picker offers the worktrees that
-  are safe to remove for bulk cleanup.
+  are safe to remove for bulk cleanup (`--group` scopes it).
 - `arb prune`: clear stale worktree references and clean up branches left with
   no worktree (`--delete-branches`).
 - `arb repo list` and `arb config` (`get`/`set`/`path`).

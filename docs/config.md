@@ -75,15 +75,15 @@ it by hand:
 
 ```bash
 arb config                       # print the resolved configuration
-arb config get worktreeRoot      # read one value (owner, worktreeRoot, copyEnvFiles, editor)
+arb config get worktreeRoot      # read one value (owner, worktreeRoot, copyEnvFiles, editor, defaultGroup)
 arb config set copyEnvFiles true # change a value (re-validated before saving)
 arb config path                  # print the config file location
 ```
 
-`get` and `set` cover the scalar fields (`owner`, `worktreeRoot`,
-`copyEnvFiles`, `editor`). The structured fields (`copyFiles`, `setup`) are
-edited in the file itself — open it with `$EDITOR "$(arb config path)"` and
-keep its permissions at `0600` (see [Trust](#trust)).
+`get` and `set` cover `owner`, `worktreeRoot`, `copyEnvFiles`, `editor`, and
+`defaultGroup`. Edit `copyFiles`, `setup`, and `groups` in the file itself —
+open it with `$EDITOR "$(arb config path)"` and keep its permissions at `0600`
+(see [Trust](#trust)). An empty `set defaultGroup` clears the default.
 
 ### The worktree root
 
@@ -116,6 +116,7 @@ for `feature/my-change` produces:
 ~/work/acme/.arborist.json
 ~/work/acme/admin
 ~/work/acme/worktrees/admin/feature-my-change
+~/work/acme/worktrees/review/admin/pr-1234
 ```
 
 ### Groups
@@ -139,6 +140,15 @@ folder. The first use of an unfamiliar name is therefore confirmed, listing the
 groups that already exist; naming it in `groups` (or passing `--yes`) skips that
 question. Group names go through the same sanitization as branch names, so
 `--group "code review"` becomes the folder `code-review`.
+
+Set `defaultGroup` if most new worktrees should land in one group:
+
+```bash
+arb config set defaultGroup review
+```
+
+Declare expected names in `groups` in the file itself so first use does not
+ask. Pass `--group ""` to place a single worktree outside the default.
 
 `arb list` grows a GROUP column once anything is grouped, and both `arb list`
 and `arb remove` take `--group <name>` to narrow to one (`--group ""` selects

@@ -55,7 +55,7 @@ internal/config/   Workspace config: discovery, read/write, validation.
 internal/exec/     Command runner and editor launcher abstractions.
 internal/git/      Low-level Git command execution and parsing.
 internal/github/   GitHub CLI (gh) integration.
-internal/picker/   Interactive repository selection.
+internal/picker/   Interactive repository and worktree selection.
 internal/paths/    Path expansion, sanitization, worktree path generation.
 internal/worktree/ Higher-level Arborist worktree workflows (incl. ids).
 internal/exectest/, internal/pickertest/  Test fakes for the runner and picker.
